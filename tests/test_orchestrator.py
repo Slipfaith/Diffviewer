@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -60,3 +61,56 @@ def test_orchestrator_missing_file(tmp_path: Path) -> None:
     other.write_text("content", encoding="utf-8")
     with pytest.raises(ParseError):
         orchestrator.compare_files(str(missing), str(other), str(tmp_path))
+
+
+def test_orchestrator_compare_folders(tmp_path: Path) -> None:
+    folder_a = tmp_path / "a"
+    folder_b = tmp_path / "b"
+    folder_a.mkdir()
+    folder_b.mkdir()
+
+    shutil.copy(FIXTURES / "sample_a.txt", folder_a / "shared.txt")
+    shutil.copy(FIXTURES / "sample_b.txt", folder_b / "shared.txt")
+
+    shutil.copy(FIXTURES / "sample_a.xliff", folder_a / "only_a.xliff")
+    shutil.copy(FIXTURES / "sample_b.srt", folder_b / "only_b.srt")
+
+    (folder_a / "bad.unknown").write_text("a", encoding="utf-8")
+    (folder_b / "bad.unknown").write_text("b", encoding="utf-8")
+
+    orchestrator = Orchestrator()
+    batch = orchestrator.compare_folders(str(folder_a), str(folder_b), str(tmp_path))
+
+    assert batch.total_files == 4
+    assert batch.compared_files == 1
+    assert batch.only_in_a == 1
+    assert batch.only_in_b == 1
+    assert batch.errors == 1
+    assert batch.summary_report_path is not None
+    assert Path(batch.summary_report_path).exists()
+
+
+def test_orchestrator_compare_folders_empty(tmp_path: Path) -> None:
+    folder_a = tmp_path / "a"
+    folder_b = tmp_path / "b"
+    folder_a.mkdir()
+    folder_b.mkdir()
+    orchestrator = Orchestrator()
+    batch = orchestrator.compare_folders(str(folder_a), str(folder_b), str(tmp_path))
+    assert batch.total_files == 0
+    assert Path(batch.summary_report_path).exists()
+
+
+def test_orchestrator_compare_versions(tmp_path: Path) -> None:
+    v1 = tmp_path / "v1.txt"
+    v2 = tmp_path / "v2.txt"
+    v3 = tmp_path / "v3.txt"
+    v1.write_text("line one\n", encoding="utf-8")
+    v2.write_text("line one changed\n", encoding="utf-8")
+    v3.write_text("line one changed again\n", encoding="utf-8")
+
+    orchestrator = Orchestrator()
+    result = orchestrator.compare_versions([str(v1), str(v2), str(v3)], str(tmp_path))
+    assert len(result.comparisons) == 2
+    assert result.summary_report_path is not None
+    assert Path(result.summary_report_path).exists()

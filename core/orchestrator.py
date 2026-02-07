@@ -5,10 +5,19 @@ from pathlib import Path
 from typing import Callable
 
 from core.diff_engine import DiffEngine
-from core.models import ComparisonResult, ParseError, UnsupportedFormatError
+from core.models import (
+    BatchFileResult,
+    BatchResult,
+    ComparisonResult,
+    MultiVersionResult,
+    ParseError,
+    UnsupportedFormatError,
+)
 from core.registry import ParserRegistry, ReporterRegistry
+from reporters.docx_reporter import DocxTrackChangesReporter
 from reporters.excel_reporter import ExcelReporter
 from reporters.html_reporter import HtmlReporter
+from reporters.summary_reporter import SummaryReporter
 
 
 @dataclass
@@ -57,14 +66,117 @@ class Orchestrator:
         ext_label = ext_a.lstrip(".") or "unknown"
         base_name = f"report_{path_a.stem}_vs_{path_b.stem}_{ext_label}"
 
-        reporters = [HtmlReporter(), ExcelReporter()]
         outputs: list[str] = []
-        for reporter in reporters:
-            output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
-            outputs.append(reporter.generate(result, str(output_path)))
+        if ext_a == ".docx":
+            docx_reporter = DocxTrackChangesReporter()
+            if docx_reporter.is_available():
+                output_path = output_dir_path / f"{base_name}{docx_reporter.output_extension}"
+                outputs.append(docx_reporter.generate(result, str(output_path)))
+            else:
+                reporters = [HtmlReporter(), ExcelReporter()]
+                for reporter in reporters:
+                    output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
+                    outputs.append(reporter.generate(result, str(output_path)))
+        else:
+            reporters = [HtmlReporter(), ExcelReporter()]
+            for reporter in reporters:
+                output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
+                outputs.append(reporter.generate(result, str(output_path)))
 
         self._progress("Done", 1.0)
         return outputs
+
+    def compare_folders(self, folder_a: str, folder_b: str, output_dir: str) -> BatchResult:
+        path_a = Path(folder_a)
+        path_b = Path(folder_b)
+        files_a = {p.name.lower(): p for p in path_a.iterdir() if p.is_file()}
+        files_b = {p.name.lower(): p for p in path_b.iterdir() if p.is_file()}
+
+        all_keys = sorted(set(files_a.keys()) | set(files_b.keys()))
+        results: list[BatchFileResult] = []
+
+        total = len(all_keys) if all_keys else 1
+        for index, key in enumerate(all_keys, start=1):
+            self._progress(f"Comparing file {index}/{len(all_keys)}...", index / total)
+            file_a = files_a.get(key)
+            file_b = files_b.get(key)
+
+            if file_a is None and file_b is not None:
+                results.append(
+                    BatchFileResult(
+                        filename=file_b.name,
+                        status="only_in_b",
+                    )
+                )
+                continue
+            if file_b is None and file_a is not None:
+                results.append(
+                    BatchFileResult(
+                        filename=file_a.name,
+                        status="only_in_a",
+                    )
+                )
+                continue
+
+            if file_a is None or file_b is None:
+                continue
+
+            try:
+                outputs = self.compare_files(str(file_a), str(file_b), output_dir)
+                stats = self.last_result.statistics if self.last_result is not None else None
+                results.append(
+                    BatchFileResult(
+                        filename=file_a.name,
+                        status="compared",
+                        report_paths=outputs,
+                        statistics=stats,
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    BatchFileResult(
+                        filename=file_a.name,
+                        status="error",
+                        error_message=str(exc),
+                    )
+                )
+
+        batch_result = BatchResult(
+            folder_a=str(path_a),
+            folder_b=str(path_b),
+            files=results,
+        )
+
+        summary_path = Path(output_dir) / "batch_summary.html"
+        SummaryReporter().generate_batch(batch_result, str(summary_path))
+        return batch_result
+
+    def compare_versions(self, files: list[str], output_dir: str) -> MultiVersionResult:
+        if len(files) < 2:
+            return MultiVersionResult(file_paths=files, comparisons=[], report_paths=[])
+
+        extensions = {Path(path).suffix.lower() for path in files}
+        if len(extensions) != 1:
+            raise UnsupportedFormatError("mixed formats")
+
+        comparisons: list[ComparisonResult] = []
+        report_paths: list[list[str]] = []
+
+        for idx in range(len(files) - 1):
+            outputs = self.compare_files(files[idx], files[idx + 1], output_dir)
+            if self.last_result is not None:
+                comparisons.append(self.last_result)
+            report_paths.append(outputs)
+
+        multi = MultiVersionResult(
+            file_paths=files,
+            comparisons=comparisons,
+            report_paths=report_paths,
+        )
+
+        summary_path = Path(output_dir) / "versions_summary.html"
+        SummaryReporter().generate_versions(multi, str(summary_path))
+        return multi
 
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:

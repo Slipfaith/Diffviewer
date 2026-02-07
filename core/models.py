@@ -165,3 +165,48 @@ class ComparisonResult:
     @property
     def change_percentage(self) -> float:
         return self.statistics.change_percentage
+
+
+@dataclass
+class BatchFileResult:
+    filename: str
+    status: str
+    report_paths: list[str] = field(default_factory=list)
+    statistics: ChangeStatistics | None = None
+    error_message: str | None = None
+
+
+@dataclass
+class BatchResult:
+    folder_a: str
+    folder_b: str
+    files: list[BatchFileResult]
+    summary_report_path: str | None = None
+
+    @property
+    def total_files(self) -> int:
+        return len(self.files)
+
+    @property
+    def compared_files(self) -> int:
+        return sum(1 for item in self.files if item.status == "compared")
+
+    @property
+    def only_in_a(self) -> int:
+        return sum(1 for item in self.files if item.status == "only_in_a")
+
+    @property
+    def only_in_b(self) -> int:
+        return sum(1 for item in self.files if item.status == "only_in_b")
+
+    @property
+    def errors(self) -> int:
+        return sum(1 for item in self.files if item.status == "error")
+
+
+@dataclass
+class MultiVersionResult:
+    file_paths: list[str]
+    comparisons: list[ComparisonResult]
+    report_paths: list[list[str]] = field(default_factory=list)
+    summary_report_path: str | None = None

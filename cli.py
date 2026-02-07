@@ -23,6 +23,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory",
     )
 
+    batch = subparsers.add_parser("batch", help="Compare two folders")
+    batch.add_argument("folder_a", type=str)
+    batch.add_argument("folder_b", type=str)
+    batch.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default="./output/",
+        help="Output directory",
+    )
+
+    versions = subparsers.add_parser("versions", help="Compare multiple versions")
+    versions.add_argument("files", nargs="+", type=str)
+    versions.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default="./output/",
+        help="Output directory",
+    )
+
     subparsers.add_parser("formats", help="List supported formats")
     return parser
 
@@ -55,6 +76,39 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_batch(args: argparse.Namespace) -> int:
+    def on_progress(message: str, value: float) -> None:
+        percent = int(value * 100)
+        print(f"{message} ({percent}%)")
+
+    orchestrator = Orchestrator(on_progress=on_progress)
+    print(f"Batch comparing: {args.folder_a} vs {args.folder_b}")
+    result = orchestrator.compare_folders(args.folder_a, args.folder_b, args.output)
+    print(
+        "Summary: total={total} compared={compared} only_in_a={only_a} only_in_b={only_b} errors={errors}".format(
+            total=result.total_files,
+            compared=result.compared_files,
+            only_a=result.only_in_a,
+            only_b=result.only_in_b,
+            errors=result.errors,
+        )
+    )
+    if result.summary_report_path:
+        print(f"Summary report: {result.summary_report_path}")
+    return 0
+
+
+def cmd_versions(args: argparse.Namespace) -> int:
+    orchestrator = Orchestrator()
+    print("Comparing versions:")
+    for path in args.files:
+        print(f"  {path}")
+    result = orchestrator.compare_versions(args.files, args.output)
+    if result.summary_report_path:
+        print(f"Summary report: {result.summary_report_path}")
+    return 0
+
+
 def cmd_formats() -> int:
     ParserRegistry.discover()
     formats = ParserRegistry.supported_extensions()
@@ -69,6 +123,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "compare":
         return cmd_compare(args)
+    if args.command == "batch":
+        return cmd_batch(args)
+    if args.command == "versions":
+        return cmd_versions(args)
     if args.command == "formats":
         return cmd_formats()
     return 1
