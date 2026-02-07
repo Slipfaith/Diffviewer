@@ -18,10 +18,13 @@ def test_orchestrator_xliff(tmp_path: Path) -> None:
         str(FIXTURES / "sample_b.xliff"),
         str(tmp_path),
     )
-    assert outputs
-    output_file = Path(outputs[0])
-    assert output_file.exists()
-    assert output_file.suffix == ".html"
+    assert len(outputs) == 2
+    html_file = Path(outputs[0])
+    excel_file = Path(outputs[1])
+    assert html_file.exists()
+    assert excel_file.exists()
+    assert html_file.suffix == ".html"
+    assert excel_file.suffix == ".xlsx"
 
 
 def test_orchestrator_txt(tmp_path: Path) -> None:
@@ -31,10 +34,13 @@ def test_orchestrator_txt(tmp_path: Path) -> None:
         str(FIXTURES / "sample_b.txt"),
         str(tmp_path),
     )
-    assert outputs
-    output_file = Path(outputs[0])
-    assert output_file.exists()
-    assert output_file.suffix == ".html"
+    assert len(outputs) == 2
+    html_file = Path(outputs[0])
+    excel_file = Path(outputs[1])
+    assert html_file.exists()
+    assert excel_file.exists()
+    assert html_file.suffix == ".html"
+    assert excel_file.suffix == ".xlsx"
 
 
 def test_orchestrator_unsupported_format(tmp_path: Path) -> None:

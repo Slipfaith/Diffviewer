@@ -23,12 +23,6 @@ body {
   margin-bottom: 20px;
 }
 
-.header-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
 
 .page-header h1 {
   margin: 0;
@@ -45,19 +39,9 @@ body {
   color: #6b7280;
 }
 
-.export-btn {
-  border: none;
-  background: #1d4ed8;
-  color: #ffffff;
-  padding: 10px 16px;
-  border-radius: 8px;
-  cursor: pointer;
+.excel-note {
   font-size: 13px;
-  height: fit-content;
-}
-
-.export-btn:hover {
-  background: #1e40af;
+  color: #1d4ed8;
 }
 
 .stats {
@@ -204,14 +188,10 @@ ins {
 </head>
 <body>
   <header class="page-header">
-    <div class="header-main">
-      <div>
-        <h1>Change Tracker</h1>
-        <div class="subtitle">sample_a.txt vs sample_b.txt</div>
-        <div class="meta">Generated: 2026-02-07 10:35:00 UTC</div>
-      </div>
-      <button class="export-btn" id="export-excel">Export to Excel</button>
-    </div>
+    <h1>Change Tracker</h1>
+    <div class="subtitle">sample_a.txt vs sample_b.txt</div>
+    <div class="meta">Generated: 2026-02-07 10:45:47 UTC</div>
+    <div class="excel-note">Excel report generated alongside this HTML.</div>
   </header>
 
   <section class="stats">
@@ -362,132 +342,6 @@ ins {
 
     applyFilter('changed');
 
-    function escapeXml(text) {
-      return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-    }
-
-    function htmlToSpreadsheetText(html) {
-      const container = document.createElement('div');
-      container.innerHTML = html;
-      const parts = [];
-
-      function pushText(text, style) {
-        if (!text) {
-          return;
-        }
-        const escaped = escapeXml(text);
-        if (!style) {
-          parts.push(escaped);
-          return;
-        }
-        const attrs = [];
-        if (style.color) {
-          attrs.push(`ss:Color="${style.color}"`);
-        }
-        if (style.underline) {
-          attrs.push('ss:Underline="Single"');
-        }
-        if (style.strike) {
-          attrs.push('ss:StrikeThrough="1"');
-        }
-        parts.push(`<Font ${attrs.join(' ')}>${escaped}</Font>`);
-      }
-
-      function walk(node, inheritedStyle) {
-        const style = { ...(inheritedStyle || {}) };
-        if (node.nodeType === Node.TEXT_NODE) {
-          pushText(node.nodeValue, inheritedStyle);
-          return;
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) {
-          return;
-        }
-        if (node.tagName.toLowerCase() === 'del') {
-          style.color = '#b91c1c';
-          style.strike = true;
-        }
-        if (node.tagName.toLowerCase() === 'ins') {
-          style.color = '#15803d';
-          style.underline = true;
-        }
-        node.childNodes.forEach(child => walk(child, style));
-      }
-
-      container.childNodes.forEach(child => walk(child, null));
-      return parts.join('');
-    }
-
-    function buildSpreadsheetXml() {
-      const headerCells = Array.from(document.querySelectorAll('thead th')).map(th => th.textContent.trim());
-      const bodyRows = Array.from(document.querySelectorAll('tbody tr'));
-
-      const rowsXml = [];
-      const headerRow = headerCells.map(text => {
-        return `<Cell ss:StyleID="header"><Data ss:Type="String">${escapeXml(text)}</Data></Cell>`;
-      }).join('');
-      rowsXml.push(`<Row>${headerRow}</Row>`);
-
-      bodyRows.forEach(row => {
-        const type = row.dataset.type || 'unchanged';
-        const cells = Array.from(row.querySelectorAll('td'));
-        const cellXml = cells.map((cell, index) => {
-          const isDiffCell = index === 3 || index === 4;
-          const value = isDiffCell ? htmlToSpreadsheetText(cell.innerHTML) : escapeXml(cell.textContent.trim());
-          const styleId = `row-${type}`;
-          return `<Cell ss:StyleID="${styleId}"><Data ss:Type="String">${value}</Data></Cell>`;
-        }).join('');
-        rowsXml.push(`<Row>${cellXml}</Row>`);
-      });
-
-      return `<?xml version="1.0"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Styles>
-    <Style ss:ID="header">
-      <Font ss:Bold="1" />
-      <Interior ss:Color="#f3f4f6" ss:Pattern="Solid" />
-    </Style>
-    <Style ss:ID="row-added">
-      <Interior ss:Color="#ecfdf3" ss:Pattern="Solid" />
-    </Style>
-    <Style ss:ID="row-deleted">
-      <Interior ss:Color="#fef2f2" ss:Pattern="Solid" />
-    </Style>
-    <Style ss:ID="row-modified">
-      <Interior ss:Color="#fffbeb" ss:Pattern="Solid" />
-    </Style>
-    <Style ss:ID="row-unchanged">
-      <Interior ss:Color="#f8fafc" ss:Pattern="Solid" />
-    </Style>
-    <Style ss:ID="row-moved">
-      <Interior ss:Color="#eef2ff" ss:Pattern="Solid" />
-    </Style>
-  </Styles>
-  <Worksheet ss:Name="Report">
-    <Table>
-      ${rowsXml.join('\n')}
-    </Table>
-  </Worksheet>
-</Workbook>`;
-    }
-
-    document.getElementById('export-excel').addEventListener('click', () => {
-      const xml = buildSpreadsheetXml();
-      const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'change-tracker-report.xls';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    });
   </script>
 </body>
 </html>

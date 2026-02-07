@@ -17,12 +17,6 @@ body {
   margin-bottom: 20px;
 }
 
-.header-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
 
 .page-header h1 {
   margin: 0;
@@ -39,19 +33,9 @@ body {
   color: #6b7280;
 }
 
-.export-btn {
-  border: none;
-  background: #1d4ed8;
-  color: #ffffff;
-  padding: 10px 16px;
-  border-radius: 8px;
-  cursor: pointer;
+.excel-note {
   font-size: 13px;
-  height: fit-content;
-}
-
-.export-btn:hover {
-  background: #1e40af;
+  color: #1d4ed8;
 }
 
 .stats {

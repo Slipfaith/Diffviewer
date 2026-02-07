@@ -7,6 +7,7 @@ from typing import Callable
 from core.diff_engine import DiffEngine
 from core.models import ComparisonResult, ParseError, UnsupportedFormatError
 from core.registry import ParserRegistry, ReporterRegistry
+from reporters.excel_reporter import ExcelReporter
 from reporters.html_reporter import HtmlReporter
 
 
@@ -53,17 +54,17 @@ class Orchestrator:
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
-        reporter = HtmlReporter()
         ext_label = ext_a.lstrip(".") or "unknown"
-        output_name = (
-            f"report_{path_a.stem}_vs_{path_b.stem}_{ext_label}"
-            f"{reporter.output_extension}"
-        )
-        output_path = output_dir_path / output_name
-        output_file = reporter.generate(result, str(output_path))
+        base_name = f"report_{path_a.stem}_vs_{path_b.stem}_{ext_label}"
+
+        reporters = [HtmlReporter(), ExcelReporter()]
+        outputs: list[str] = []
+        for reporter in reporters:
+            output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
+            outputs.append(reporter.generate(result, str(output_path)))
 
         self._progress("Done", 1.0)
-        return [output_file]
+        return outputs
 
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:
