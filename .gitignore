@@ -40,3 +40,13 @@ htmlcov/
 
 # Database files
 *.sqlite3
+
+# generated artifacts
+test_output/
+
+# dotnet build artifacts
+tools/**/bin/
+tools/**/obj/
+*.exe
+*.dll
+*.pdb
