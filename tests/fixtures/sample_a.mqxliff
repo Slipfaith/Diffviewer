@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:mq="http://memoq.com/xliff">
+  <file source-language="en" target-language="nl" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1" mq:status="ManuallyConfirmed" mq:segmentguid="guid-1">
+        <source xml:space="preserve">Log in every day and get rewards!</source>
+        <target xml:space="preserve">Log elke dag in en ontvang beloningen!</target>
+        <context-group>
+          <context context-type="x-mmq-structural-context">:B5/C5</context>
+        </context-group>
+        <note>50</note>
+      </trans-unit>
+      <trans-unit id="2" mq:status="Translated" mq:segmentguid="guid-2">
+        <source xml:space="preserve">Second line</source>
+        <target xml:space="preserve">Tweede regel</target>
+      </trans-unit>
+      <trans-unit id="3" mq:status="Draft" mq:segmentguid="guid-3">
+        <source xml:space="preserve">Third line</source>
+        <target xml:space="preserve">Derde regel</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:sdl="http://sdl.com/FileTypes/SdlXliff/1.0">
+  <file source-language="en" target-language="ru" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="tu-1">
+        <seg-source><g id="1"><mrk mtype="seg" mid="101">First line</mrk></g></seg-source>
+        <target><g id="1"><mrk mtype="seg" mid="101">Первая строка</mrk></g></target>
+        <sdl:seg-defs>
+          <sdl:seg id="101" conf="ApprovedTranslation" origin="tm" percent="100"/>
+        </sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="tu-2">
+        <seg-source><g id="2"><mrk mtype="seg" mid="102">Second line</mrk></g></seg-source>
+        <target><g id="2"><mrk mtype="seg" mid="102">Вторая строка (изменено)</mrk></g></target>
+        <sdl:seg-defs>
+          <sdl:seg id="102" conf="Translated" origin="mt" percent="95"/>
+        </sdl:seg-defs>
+      </trans-unit>
+      <trans-unit id="tu-3">
+        <seg-source><g id="3"><mrk mtype="seg" mid="103">Third line</mrk></g></seg-source>
+        <target><g id="3"><mrk mtype="seg" mid="103">Третья строка</mrk></g></target>
+        <sdl:seg-defs>
+          <sdl:seg id="103" conf="Draft" origin="user" percent="80"/>
+        </sdl:seg-defs>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
