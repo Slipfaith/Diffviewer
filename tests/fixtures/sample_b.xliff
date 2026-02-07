@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="ru" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1">
+        <source>Hello</source>
+        <target>Привет</target>
+      </trans-unit>
+      <trans-unit id="2">
+        <source>World</source>
+        <target>Мир!</target>
+      </trans-unit>
+      <trans-unit id="4">
+        <source>Bye</source>
+        <target>До свидания</target>
+      </trans-unit>
+      <trans-unit id="5">
+        <source>New line</source>
+        <target>Новая строка</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

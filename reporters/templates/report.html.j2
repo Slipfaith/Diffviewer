@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Change Tracker Report</title>
+  <style>
+{{ styles }}
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="header-main">
+      <div>
+        <h1>Change Tracker</h1>
+        <div class="subtitle">{{ file_a_name }} vs {{ file_b_name }}</div>
+        <div class="meta">Generated: {{ timestamp }}</div>
+      </div>
+      <button class="export-btn" id="export-excel">Export to Excel</button>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-label">Total</div>
+      <div class="stat-value">{{ statistics.total_segments }}</div>
+    </div>
+    <div class="stat added">
+      <div class="stat-label">Added</div>
+      <div class="stat-value">{{ statistics.added }}</div>
+    </div>
+    <div class="stat deleted">
+      <div class="stat-label">Deleted</div>
+      <div class="stat-value">{{ statistics.deleted }}</div>
+    </div>
+    <div class="stat modified">
+      <div class="stat-label">Modified</div>
+      <div class="stat-value">{{ statistics.modified }}</div>
+    </div>
+    <div class="stat unchanged">
+      <div class="stat-label">Unchanged</div>
+      <div class="stat-value">{{ statistics.unchanged }}</div>
+    </div>
+    <div class="stat percent">
+      <div class="stat-label">Change %</div>
+      <div class="stat-value">{{ change_percentage }}</div>
+    </div>
+  </section>
+
+  <section class="filters">
+    <button class="filter-btn active" data-filter="changed">Changed</button>
+    <button class="filter-btn" data-filter="all">Show All</button>
+    <button class="filter-btn" data-filter="added">Added</button>
+    <button class="filter-btn" data-filter="deleted">Deleted</button>
+    <button class="filter-btn" data-filter="modified">Modified</button>
+    <button class="filter-btn" data-filter="unchanged">Unchanged</button>
+  </section>
+
+  <table class="report-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Segment ID</th>
+        <th>Source</th>
+        <th>Old Target</th>
+        <th>New Target</th>
+        <th>Type</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}">
+        <td>{{ row.index }}</td>
+        <td>{{ row.segment_id }}</td>
+        <td>{{ row.source }}</td>
+        <td>{{ row.old_target|safe }}</td>
+        <td>{{ row.new_target|safe }}</td>
+        <td class="type-cell">{{ row.change_type }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    const buttons = document.querySelectorAll('.filter-btn');
+    const rows = document.querySelectorAll('tbody tr');
+    const changedTypes = new Set(['added', 'deleted', 'modified', 'moved']);
+
+    function setActive(button) {
+      buttons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+    }
+
+    function applyFilter(filter) {
+      rows.forEach(row => {
+        if (filter === 'all') {
+          row.classList.remove('hidden');
+          return;
+        }
+        if (filter === 'changed') {
+          if (changedTypes.has(row.dataset.type)) {
+            row.classList.remove('hidden');
+          } else {
+            row.classList.add('hidden');
+          }
+          return;
+        }
+        if (row.dataset.type === filter) {
+          row.classList.remove('hidden');
+        } else {
+          row.classList.add('hidden');
+        }
+      });
+    }
+
+    buttons.forEach(button => {
+      button.addEventListener('click', () => {
+        const filter = button.dataset.filter;
+        setActive(button);
+        applyFilter(filter);
+      });
+    });
+
+    applyFilter('changed');
+
+    function escapeXml(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    }
+
+    function htmlToSpreadsheetText(html) {
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      const parts = [];
+
+      function pushText(text, style) {
+        if (!text) {
+          return;
+        }
+        const escaped = escapeXml(text);
+        if (!style) {
+          parts.push(escaped);
+          return;
+        }
+        const attrs = [];
+        if (style.color) {
+          attrs.push(`ss:Color="${style.color}"`);
+        }
+        if (style.underline) {
+          attrs.push('ss:Underline="Single"');
+        }
+        if (style.strike) {
+          attrs.push('ss:StrikeThrough="1"');
+        }
+        parts.push(`<Font ${attrs.join(' ')}>${escaped}</Font>`);
+      }
+
+      function walk(node, inheritedStyle) {
+        const style = { ...(inheritedStyle || {}) };
+        if (node.nodeType === Node.TEXT_NODE) {
+          pushText(node.nodeValue, inheritedStyle);
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return;
+        }
+        if (node.tagName.toLowerCase() === 'del') {
+          style.color = '#b91c1c';
+          style.strike = true;
+        }
+        if (node.tagName.toLowerCase() === 'ins') {
+          style.color = '#15803d';
+          style.underline = true;
+        }
+        node.childNodes.forEach(child => walk(child, style));
+      }
+
+      container.childNodes.forEach(child => walk(child, null));
+      return parts.join('');
+    }
+
+    function buildSpreadsheetXml() {
+      const headerCells = Array.from(document.querySelectorAll('thead th')).map(th => th.textContent.trim());
+      const bodyRows = Array.from(document.querySelectorAll('tbody tr'));
+
+      const rowsXml = [];
+      const headerRow = headerCells.map(text => {
+        return `<Cell ss:StyleID="header"><Data ss:Type="String">${escapeXml(text)}</Data></Cell>`;
+      }).join('');
+      rowsXml.push(`<Row>${headerRow}</Row>`);
+
+      bodyRows.forEach(row => {
+        const type = row.dataset.type || 'unchanged';
+        const cells = Array.from(row.querySelectorAll('td'));
+        const cellXml = cells.map((cell, index) => {
+          const isDiffCell = index === 3 || index === 4;
+          const value = isDiffCell ? htmlToSpreadsheetText(cell.innerHTML) : escapeXml(cell.textContent.trim());
+          const styleId = `row-${type}`;
+          return `<Cell ss:StyleID="${styleId}"><Data ss:Type="String">${value}</Data></Cell>`;
+        }).join('');
+        rowsXml.push(`<Row>${cellXml}</Row>`);
+      });
+
+      return `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Styles>
+    <Style ss:ID="header">
+      <Font ss:Bold="1" />
+      <Interior ss:Color="#f3f4f6" ss:Pattern="Solid" />
+    </Style>
+    <Style ss:ID="row-added">
+      <Interior ss:Color="#ecfdf3" ss:Pattern="Solid" />
+    </Style>
+    <Style ss:ID="row-deleted">
+      <Interior ss:Color="#fef2f2" ss:Pattern="Solid" />
+    </Style>
+    <Style ss:ID="row-modified">
+      <Interior ss:Color="#fffbeb" ss:Pattern="Solid" />
+    </Style>
+    <Style ss:ID="row-unchanged">
+      <Interior ss:Color="#f8fafc" ss:Pattern="Solid" />
+    </Style>
+    <Style ss:ID="row-moved">
+      <Interior ss:Color="#eef2ff" ss:Pattern="Solid" />
+    </Style>
+  </Styles>
+  <Worksheet ss:Name="Report">
+    <Table>
+      ${rowsXml.join('\n')}
+    </Table>
+  </Worksheet>
+</Workbook>`;
+    }
+
+    document.getElementById('export-excel').addEventListener('click', () => {
+      const xml = buildSpreadsheetXml();
+      const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'change-tracker-report.xls';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>

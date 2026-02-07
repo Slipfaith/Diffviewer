@@ -1,0 +1,6 @@
+Line one
+Line two changed
+
+Привет мир
+Line five
+New last line
