@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import html
 from pathlib import Path
 
 from jinja2 import Template
@@ -65,25 +66,39 @@ class HtmlReporter(BaseReporter):
     def _render_old_target(self, change) -> str:
         if change.type == ChangeType.ADDED:
             return ""
-        if change.type in (ChangeType.DELETED, ChangeType.UNCHANGED):
-            return (change.segment_before.target if change.segment_before else "") or ""
+        if change.type == ChangeType.DELETED:
+            text = (change.segment_before.target if change.segment_before else "") or ""
+            return self._wrap_delete(text)
+        if change.type == ChangeType.UNCHANGED:
+            return self._escape((change.segment_before.target if change.segment_before else "") or "")
         return self._render_diff(change.text_diff, side="old")
 
     def _render_new_target(self, change) -> str:
         if change.type == ChangeType.DELETED:
             return ""
-        if change.type in (ChangeType.ADDED, ChangeType.UNCHANGED):
-            return (change.segment_after.target if change.segment_after else "") or ""
-        return self._render_diff(change.text_diff, side="new")
+        if change.type == ChangeType.ADDED:
+            text = (change.segment_after.target if change.segment_after else "") or ""
+            return self._wrap_insert(text)
+        if change.type == ChangeType.UNCHANGED:
+            return self._escape((change.segment_after.target if change.segment_after else "") or "")
+        rendered = self._render_diff(change.text_diff, side="new")
+        if rendered:
+            return rendered
+        fallback = (change.segment_after.target if change.segment_after else "") or ""
+        return self._escape(fallback)
 
     @staticmethod
     def _escape(text: str) -> str:
-        return (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-        )
+        return html.escape(text, quote=True)
+
+    def _escape_changed_text(self, text: str) -> str:
+        return self._escape(text).replace(" ", "&middot;")
+
+    def _wrap_delete(self, text: str) -> str:
+        return f"<del>{self._escape_changed_text(text)}</del>" if text else ""
+
+    def _wrap_insert(self, text: str) -> str:
+        return f"<ins>{self._escape_changed_text(text)}</ins>" if text else ""
 
     def _render_diff(self, diffs: list[DiffChunk], side: str) -> str:
         parts: list[str] = []
@@ -91,8 +106,8 @@ class HtmlReporter(BaseReporter):
             text = self._escape(chunk.text)
             if chunk.type == ChunkType.EQUAL:
                 parts.append(text)
-            elif chunk.type == ChunkType.DELETE and side == "old":
-                parts.append(f"<del>{text}</del>")
+            elif chunk.type == ChunkType.DELETE and side in {"old", "new"}:
+                parts.append(self._wrap_delete(chunk.text))
             elif chunk.type == ChunkType.INSERT and side == "new":
-                parts.append(f"<ins>{text}</ins>")
+                parts.append(self._wrap_insert(chunk.text))
         return "".join(parts)

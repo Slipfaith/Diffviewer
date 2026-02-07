@@ -133,3 +133,131 @@ def test_excel_reporter_column_widths(tmp_path: Path) -> None:
         idx = column_index_from_string(col)
         assert idx in width_map
         assert width_map[idx] == pytest.approx(expected, abs=1.0)
+
+
+def test_excel_reporter_generate_from_json(tmp_path: Path) -> None:
+    data = {
+        "file_a_name": "a.txt",
+        "file_b_name": "b.txt",
+        "statistics": {
+            "total_segments": 2,
+            "added": 0,
+            "deleted": 0,
+            "modified": 1,
+            "unchanged": 1,
+            "change_percentage": 0.5,
+        },
+        "changes": [
+            {
+                "type": "modified",
+                "segment_before": {"id": "1", "source": None, "target": "Hello world"},
+                "segment_after": {"id": "1", "source": None, "target": "Hello, world"},
+                "text_diff": [
+                    {"type": "equal", "text": "Hello"},
+                    {"type": "delete", "text": " "},
+                    {"type": "insert", "text": ", "},
+                    {"type": "equal", "text": "world"},
+                ],
+            },
+            {
+                "type": "unchanged",
+                "segment_before": {"id": "2", "source": None, "target": "Same"},
+                "segment_after": {"id": "2", "source": None, "target": "Same"},
+                "text_diff": [],
+            },
+        ],
+    }
+    reporter = ExcelReporter()
+    output_file = reporter.generate_from_json(data, str(tmp_path / "from_json.xlsx"))
+    workbook = openpyxl.load_workbook(output_file, read_only=True)
+    report_ws = workbook["Report"]
+    assert report_ws.max_row == 3
+
+
+def test_excel_reporter_old_new_columns_logic(tmp_path: Path) -> None:
+    seg_before = make_segment("1", "A old text")
+    seg_after = make_segment("1", "A new text")
+    seg_added = make_segment("2", "Only new")
+    seg_deleted = make_segment("3", "Only old")
+
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.EQUAL, text="A "),
+                DiffChunk(type=ChunkType.DELETE, text="old "),
+                DiffChunk(type=ChunkType.INSERT, text="new "),
+                DiffChunk(type=ChunkType.EQUAL, text="text"),
+            ],
+            similarity=0.9,
+            context=seg_after.context,
+        ),
+        ChangeRecord(
+            type=ChangeType.ADDED,
+            segment_before=None,
+            segment_after=seg_added,
+            text_diff=[],
+            similarity=0.0,
+            context=seg_added.context,
+        ),
+        ChangeRecord(
+            type=ChangeType.DELETED,
+            segment_before=seg_deleted,
+            segment_after=None,
+            text_diff=[],
+            similarity=0.0,
+            context=seg_deleted.context,
+        ),
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg_before, seg_deleted]),
+        file_b=make_doc("b.txt", [seg_after, seg_added]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "logic.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    # Row 2: MODIFIED
+    assert ws["D2"].value == "A old text"
+    assert ws["E2"].value == "A old new text"
+    # Row 3: ADDED
+    assert ws["D3"].value in ("", None)
+    assert ws["E3"].value == "Only new"
+    # Row 4: DELETED
+    assert ws["D4"].value == "Only old"
+    assert ws["E4"].value in ("", None)
+
+
+def test_excel_reporter_hides_unchanged_by_default(tmp_path: Path) -> None:
+    seg = make_segment("1", "Same text")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "hidden.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+    assert ws.auto_filter.ref == "A1:F2"
+    assert ws.row_dimensions[2].hidden is True

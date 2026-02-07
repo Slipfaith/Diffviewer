@@ -45,7 +45,7 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
             text_diff=[
                 DiffChunk(type=ChunkType.EQUAL, text="Hello "),
                 DiffChunk(type=ChunkType.DELETE, text="old "),
-                DiffChunk(type=ChunkType.INSERT, text="brave "),
+                DiffChunk(type=ChunkType.INSERT, text="brave  "),
                 DiffChunk(type=ChunkType.EQUAL, text="world"),
             ],
             similarity=0.8,
@@ -96,6 +96,12 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
     assert "b.txt" in output_content
     assert "<ins>" in output_content
     assert "<del>" in output_content
+    assert "&middot;" in output_content
+    assert "Export to Excel" not in output_content
+    assert "function exportToExcel()" not in output_content
+    assert "Excel.Sheet" not in output_content
+    assert "application/vnd.ms-excel" not in output_content
+    assert "alert(" not in output_content
     assert "Added" in output_content
     assert "Deleted" in output_content
     assert "Modified" in output_content
@@ -113,3 +119,57 @@ def test_html_reporter_empty_result(tmp_path: Path) -> None:
     reporter = HtmlReporter()
     output_file = reporter.generate(result, str(tmp_path / "empty.html"))
     assert Path(output_file).exists()
+
+
+def test_html_reporter_bidirectional_inline_diff_rules() -> None:
+    reporter = HtmlReporter()
+    seg_before = make_segment("1", "A old text")
+    seg_after = make_segment("1", "A new text")
+    modified = ChangeRecord(
+        type=ChangeType.MODIFIED,
+        segment_before=seg_before,
+        segment_after=seg_after,
+        text_diff=[
+            DiffChunk(type=ChunkType.EQUAL, text="A "),
+            DiffChunk(type=ChunkType.DELETE, text="old "),
+            DiffChunk(type=ChunkType.INSERT, text="new "),
+            DiffChunk(type=ChunkType.EQUAL, text="text"),
+        ],
+        similarity=0.8,
+        context=seg_after.context,
+    )
+
+    old_html = reporter._render_old_target(modified)
+    new_html = reporter._render_new_target(modified)
+    assert "<ins>" not in old_html
+    assert "<del>old&middot;</del>" in old_html
+    assert "<del>old&middot;</del>" in new_html
+    assert "<ins>new&middot;</ins>" in new_html
+
+
+def test_html_reporter_added_deleted_rules() -> None:
+    reporter = HtmlReporter()
+    seg_added = make_segment("1", "Added text")
+    seg_deleted = make_segment("2", "Deleted text")
+
+    added = ChangeRecord(
+        type=ChangeType.ADDED,
+        segment_before=None,
+        segment_after=seg_added,
+        text_diff=[],
+        similarity=0.0,
+        context=seg_added.context,
+    )
+    deleted = ChangeRecord(
+        type=ChangeType.DELETED,
+        segment_before=seg_deleted,
+        segment_after=None,
+        text_diff=[],
+        similarity=0.0,
+        context=seg_deleted.context,
+    )
+
+    assert reporter._render_old_target(added) == ""
+    assert reporter._render_new_target(added).startswith("<ins>")
+    assert reporter._render_new_target(deleted) == ""
+    assert reporter._render_old_target(deleted).startswith("<del>")

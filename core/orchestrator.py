@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+import logging
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +20,9 @@ from reporters.docx_reporter import DocxTrackChangesReporter
 from reporters.excel_reporter import ExcelReporter
 from reporters.html_reporter import HtmlReporter
 from reporters.summary_reporter import SummaryReporter
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -63,8 +68,10 @@ class Orchestrator:
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
-        ext_label = ext_a.lstrip(".") or "unknown"
-        base_name = f"report_{path_a.stem}_vs_{path_b.stem}_{ext_label}"
+        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M")
+        base_name = f"changereport_{timestamp_label}"
+        html_path = output_dir_path / f"{base_name}.html"
+        excel_path = output_dir_path / f"{base_name}.xlsx"
 
         outputs: list[str] = []
         if ext_a == ".docx":
@@ -72,16 +79,17 @@ class Orchestrator:
             if docx_reporter.is_available():
                 output_path = output_dir_path / f"{base_name}{docx_reporter.output_extension}"
                 outputs.append(docx_reporter.generate(result, str(output_path)))
+                outputs.append(HtmlReporter().generate(result, str(html_path)))
+                outputs.append(ExcelReporter().generate(result, str(excel_path)))
             else:
-                reporters = [HtmlReporter(), ExcelReporter()]
-                for reporter in reporters:
-                    output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
-                    outputs.append(reporter.generate(result, str(output_path)))
+                logger.warning(
+                    "Microsoft Word not found, generating HTML+Excel reports only"
+                )
+                outputs.append(HtmlReporter().generate(result, str(html_path)))
+                outputs.append(ExcelReporter().generate(result, str(excel_path)))
         else:
-            reporters = [HtmlReporter(), ExcelReporter()]
-            for reporter in reporters:
-                output_path = output_dir_path / f"{base_name}{reporter.output_extension}"
-                outputs.append(reporter.generate(result, str(output_path)))
+            outputs.append(HtmlReporter().generate(result, str(html_path)))
+            outputs.append(ExcelReporter().generate(result, str(excel_path)))
 
         self._progress("Done", 1.0)
         return outputs

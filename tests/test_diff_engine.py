@@ -94,3 +94,53 @@ def test_compare_multi_chain() -> None:
     assert results[0].file_b is doc_b
     assert results[1].file_a is doc_b
     assert results[1].file_b is doc_c
+
+
+def test_modified_when_only_space_changed() -> None:
+    doc_a = make_doc([make_segment("1", "Hello world", 1)])
+    doc_b = make_doc([make_segment("1", "Hello  world", 1)])
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert any(chunk.type == ChunkType.INSERT and chunk.text == " " for chunk in change.text_diff)
+
+
+def test_modified_when_only_punctuation_changed() -> None:
+    doc_a = make_doc([make_segment("1", "Hello, world", 1)])
+    doc_b = make_doc([make_segment("1", "Hello. world", 1)])
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert any(chunk.type == ChunkType.DELETE and chunk.text == "," for chunk in change.text_diff)
+    assert any(chunk.type == ChunkType.INSERT and chunk.text == "." for chunk in change.text_diff)
+
+
+def test_word_replacement_is_whole_word_delete_insert() -> None:
+    doc_a = make_doc([make_segment("1", "молоко", 1)])
+    doc_b = make_doc([make_segment("1", "болото", 1)])
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert len(change.text_diff) == 2
+    assert change.text_diff[0].type == ChunkType.DELETE
+    assert change.text_diff[0].text == "молоко"
+    assert change.text_diff[1].type == ChunkType.INSERT
+    assert change.text_diff[1].text == "болото"
+
+
+def test_case_only_change_uses_char_level_diff() -> None:
+    doc_a = make_doc([make_segment("1", "Hello", 1)])
+    doc_b = make_doc([make_segment("1", "hello", 1)])
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert any(chunk.type == ChunkType.DELETE and chunk.text == "H" for chunk in change.text_diff)
+    assert any(chunk.type == ChunkType.INSERT and chunk.text == "h" for chunk in change.text_diff)

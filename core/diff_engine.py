@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+import re
 from typing import Iterable
 
 from diff_match_patch import diff_match_patch
@@ -112,34 +113,77 @@ class SegmentMatcher:
 
 class TextDiffer:
     _char_threshold = 40
+    _token_pattern = re.compile(r"\w+|[^\w\s]|\s", re.UNICODE)
+    _word_pattern = re.compile(r"^\w+$", re.UNICODE)
+
+    @classmethod
+    def _tokenize(cls, text: str) -> list[str]:
+        return cls._token_pattern.findall(text)
+
+    @classmethod
+    def _is_word(cls, token: str) -> bool:
+        return bool(cls._word_pattern.match(token))
+
+    @staticmethod
+    def _append_chunk(chunks: list[DiffChunk], chunk_type: ChunkType, text: str) -> None:
+        if not text:
+            return
+        if chunks and chunks[-1].type == chunk_type:
+            chunks[-1].text += text
+            return
+        chunks.append(DiffChunk(type=chunk_type, text=text))
 
     @staticmethod
     def diff_words(a: str, b: str) -> list[DiffChunk]:
-        a_words = a.split()
-        b_words = b.split()
-        matcher = SequenceMatcher(None, a_words, b_words)
+        a_tokens = TextDiffer._tokenize(a)
+        b_tokens = TextDiffer._tokenize(b)
+        matcher = SequenceMatcher(None, a_tokens, b_tokens)
         chunks: list[DiffChunk] = []
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal":
-                text = " ".join(a_words[i1:i2])
-                if text:
-                    chunks.append(DiffChunk(type=ChunkType.EQUAL, text=text))
+                TextDiffer._append_chunk(
+                    chunks, ChunkType.EQUAL, "".join(a_tokens[i1:i2])
+                )
             elif tag == "delete":
-                text = " ".join(a_words[i1:i2])
-                if text:
-                    chunks.append(DiffChunk(type=ChunkType.DELETE, text=text))
+                TextDiffer._append_chunk(
+                    chunks, ChunkType.DELETE, "".join(a_tokens[i1:i2])
+                )
             elif tag == "insert":
-                text = " ".join(b_words[j1:j2])
-                if text:
-                    chunks.append(DiffChunk(type=ChunkType.INSERT, text=text))
+                TextDiffer._append_chunk(
+                    chunks, ChunkType.INSERT, "".join(b_tokens[j1:j2])
+                )
             elif tag == "replace":
-                del_text = " ".join(a_words[i1:i2])
-                ins_text = " ".join(b_words[j1:j2])
-                if del_text:
-                    chunks.append(DiffChunk(type=ChunkType.DELETE, text=del_text))
-                if ins_text:
-                    chunks.append(DiffChunk(type=ChunkType.INSERT, text=ins_text))
+                TextDiffer._append_replace_chunks(
+                    chunks, a_tokens[i1:i2], b_tokens[j1:j2]
+                )
         return chunks
+
+    @classmethod
+    def _append_replace_chunks(
+        cls, chunks: list[DiffChunk], tokens_a: list[str], tokens_b: list[str]
+    ) -> None:
+        common = min(len(tokens_a), len(tokens_b))
+        for idx in range(common):
+            token_a = tokens_a[idx]
+            token_b = tokens_b[idx]
+            if token_a == token_b:
+                cls._append_chunk(chunks, ChunkType.EQUAL, token_a)
+                continue
+            if cls._is_word(token_a) and cls._is_word(token_b):
+                if token_a.lower() == token_b.lower():
+                    for chunk in cls.diff_chars(token_a, token_b):
+                        cls._append_chunk(chunks, chunk.type, chunk.text)
+                else:
+                    cls._append_chunk(chunks, ChunkType.DELETE, token_a)
+                    cls._append_chunk(chunks, ChunkType.INSERT, token_b)
+                continue
+            cls._append_chunk(chunks, ChunkType.DELETE, token_a)
+            cls._append_chunk(chunks, ChunkType.INSERT, token_b)
+
+        for token in tokens_a[common:]:
+            cls._append_chunk(chunks, ChunkType.DELETE, token)
+        for token in tokens_b[common:]:
+            cls._append_chunk(chunks, ChunkType.INSERT, token)
 
     @staticmethod
     def diff_chars(a: str, b: str) -> list[DiffChunk]:
@@ -160,9 +204,13 @@ class TextDiffer:
 
     @classmethod
     def diff_auto(cls, a: str, b: str) -> list[DiffChunk]:
-        if max(len(a), len(b)) <= cls._char_threshold:
-            return cls.diff_chars(a, b)
         return cls.diff_words(a, b)
+
+    @classmethod
+    def has_only_non_word_or_case_changes(cls, a: str, b: str) -> bool:
+        words_a = [token.lower() for token in cls._tokenize(a) if cls._is_word(token)]
+        words_b = [token.lower() for token in cls._tokenize(b) if cls._is_word(token)]
+        return words_a == words_b
 
 
 class DiffEngine:
@@ -186,13 +234,17 @@ class DiffEngine:
                 continue
 
             similarity = SequenceMatcher(None, seg_a.target, seg_b.target).ratio()
-            if similarity >= SIMILARITY_THRESHOLD:
+            text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target)
+            keep_as_modified = similarity >= SIMILARITY_THRESHOLD or TextDiffer.has_only_non_word_or_case_changes(
+                seg_a.target, seg_b.target
+            )
+            if keep_as_modified:
                 changes.append(
                     ChangeRecord(
                         type=ChangeType.MODIFIED,
                         segment_before=seg_a,
                         segment_after=seg_b,
-                        text_diff=TextDiffer.diff_auto(seg_a.target, seg_b.target),
+                        text_diff=text_diff,
                         similarity=similarity,
                         context=seg_b.context,
                     )

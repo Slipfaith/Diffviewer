@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import xlsxwriter
@@ -14,6 +16,43 @@ class ExcelReporter(BaseReporter):
     supports_rich_text = True
 
     def generate(self, result: ComparisonResult, output_path: str) -> str:
+        payload = {
+            "file_a_name": Path(result.file_a.file_path).name,
+            "file_b_name": Path(result.file_b.file_path).name,
+            "statistics": {
+                "total_segments": result.statistics.total_segments,
+                "added": result.statistics.added,
+                "deleted": result.statistics.deleted,
+                "modified": result.statistics.modified,
+                "unchanged": result.statistics.unchanged,
+                "change_percentage": result.statistics.change_percentage,
+            },
+            "changes": [
+                {
+                    "type": change.type.value,
+                    "segment_before": self._serialize_segment(change.segment_before),
+                    "segment_after": self._serialize_segment(change.segment_after),
+                    "text_diff": [
+                        {"type": chunk.type.value, "text": chunk.text}
+                        for chunk in change.text_diff
+                    ],
+                }
+                for change in result.changes
+            ],
+        }
+        return self.generate_from_json(payload, output_path)
+
+    def generate_from_html(self, html_path: str, output_path: str | None = None) -> str:
+        html_file = Path(html_path)
+        content = html_file.read_text(encoding="utf-8")
+        data = self._extract_report_data(content)
+        if output_path is None:
+            output_file = html_file.with_suffix(self.output_extension)
+        else:
+            output_file = Path(output_path)
+        return self.generate_from_json(data, str(output_file))
+
+    def generate_from_json(self, data: dict, output_path: str) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != self.output_extension:
             output_file = output_file.with_suffix(self.output_extension)
@@ -42,7 +81,6 @@ class ExcelReporter(BaseReporter):
                     {"bg_color": "#eef2ff", "text_wrap": True}
                 ),
             }
-
             diff_formats = {
                 ChunkType.DELETE: workbook.add_format(
                     {"font_color": "#b91c1c", "font_strikeout": True, "text_wrap": True}
@@ -52,90 +90,132 @@ class ExcelReporter(BaseReporter):
                 ),
                 ChunkType.EQUAL: workbook.add_format({"text_wrap": True}),
             }
+            delete_cell_formats = {
+                ChangeType.ADDED: workbook.add_format(
+                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.DELETED: workbook.add_format(
+                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.MODIFIED: workbook.add_format(
+                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.UNCHANGED: workbook.add_format(
+                    {"text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.MOVED: workbook.add_format(
+                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+            }
+            insert_cell_formats = {
+                ChangeType.ADDED: workbook.add_format(
+                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.DELETED: workbook.add_format(
+                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.MODIFIED: workbook.add_format(
+                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.UNCHANGED: workbook.add_format(
+                    {"text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.MOVED: workbook.add_format(
+                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+            }
 
             headers = ["#", "Segment ID", "Source", "Old Target", "New Target", "Type"]
             report_ws.write_row(0, 0, headers, header_format)
-
             report_ws.set_column(0, 0, 6)
             report_ws.set_column(1, 1, 15)
             report_ws.set_column(2, 2, 30)
             report_ws.set_column(3, 4, 45)
             report_ws.set_column(5, 5, 12)
-
             report_ws.freeze_panes(1, 0)
-            end_row = max(0, len(result.changes))
+            end_row = max(0, len(data.get("changes", [])))
             report_ws.autofilter(0, 0, end_row, 5)
+            report_ws.filter_column_list(5, ["ADDED", "DELETED", "MODIFIED", "MOVED"])
 
-            for index, change in enumerate(result.changes, start=1):
+            for index, change in enumerate(data.get("changes", []), start=1):
                 row = index
-                row_format = row_formats.get(change.type, row_formats[ChangeType.UNCHANGED])
-                before = change.segment_before
-                after = change.segment_after
-                segment_id = after.id if after is not None else before.id if before is not None else ""
-                source = after.source if after is not None else before.source if before is not None else ""
+                change_type = self._parse_change_type(
+                    change.get("type", ChangeType.UNCHANGED.value)
+                )
+                row_format = row_formats.get(change_type, row_formats[ChangeType.UNCHANGED])
+
+                before = change.get("segment_before") or {}
+                after = change.get("segment_after") or {}
+                segment_id = after.get("id") or before.get("id") or ""
+                source = after.get("source") or before.get("source") or ""
+                text_diff = [
+                    DiffChunk(
+                        type=self._parse_chunk_type(chunk.get("type", ChunkType.EQUAL.value)),
+                        text=chunk.get("text", ""),
+                    )
+                    for chunk in change.get("text_diff", [])
+                ]
 
                 report_ws.write(row, 0, index, row_format)
                 report_ws.write(row, 1, segment_id, row_format)
-                report_ws.write(row, 2, source or "", row_format)
+                report_ws.write(row, 2, source, row_format)
 
-                if change.type == ChangeType.MODIFIED:
+                if change_type == ChangeType.MODIFIED:
                     self._write_rich(
                         report_ws,
                         row,
                         3,
-                        change.text_diff,
+                        text_diff,
                         row_format,
                         diff_formats,
                         side="old",
+                        fallback=before.get("target", ""),
                     )
                     self._write_rich(
                         report_ws,
                         row,
                         4,
-                        change.text_diff,
+                        text_diff,
                         row_format,
                         diff_formats,
                         side="new",
+                        fallback=after.get("target", ""),
                     )
-                elif change.type == ChangeType.ADDED:
+                elif change_type == ChangeType.ADDED:
                     report_ws.write(row, 3, "", row_format)
                     report_ws.write(
                         row,
                         4,
-                        after.target if after is not None else "",
-                        row_format,
+                        after.get("target", ""),
+                        insert_cell_formats[change_type],
                     )
-                elif change.type == ChangeType.DELETED:
+                elif change_type == ChangeType.DELETED:
                     report_ws.write(
                         row,
                         3,
-                        before.target if before is not None else "",
-                        row_format,
+                        before.get("target", ""),
+                        delete_cell_formats[change_type],
                     )
                     report_ws.write(row, 4, "", row_format)
                 else:
-                    report_ws.write(
-                        row,
-                        3,
-                        before.target if before is not None else "",
-                        row_format,
-                    )
-                    report_ws.write(
-                        row,
-                        4,
-                        after.target if after is not None else "",
-                        row_format,
-                    )
+                    report_ws.write(row, 3, before.get("target", ""), row_format)
+                    report_ws.write(row, 4, after.get("target", ""), row_format)
 
-                report_ws.write(row, 5, change.type.value.lower(), row_format)
+                report_ws.write(row, 5, change_type.value, row_format)
+                if change_type == ChangeType.UNCHANGED:
+                    report_ws.set_row(row, None, None, {"hidden": True})
 
+            stats = data.get("statistics", {})
             stats_labels = [
-                ("Total", result.statistics.total_segments),
-                ("Added", result.statistics.added),
-                ("Deleted", result.statistics.deleted),
-                ("Modified", result.statistics.modified),
-                ("Unchanged", result.statistics.unchanged),
-                ("Change %", f"{result.statistics.change_percentage * 100:.1f}%"),
+                ("Total", stats.get("total_segments", len(data.get("changes", [])))),
+                ("Added", stats.get("added", 0)),
+                ("Deleted", stats.get("deleted", 0)),
+                ("Modified", stats.get("modified", 0)),
+                ("Unchanged", stats.get("unchanged", 0)),
+                (
+                    "Change %",
+                    f"{float(stats.get('change_percentage', 0.0)) * 100:.1f}%",
+                ),
             ]
             stats_ws.set_column(0, 0, 18)
             stats_ws.set_column(1, 1, 12)
@@ -147,6 +227,44 @@ class ExcelReporter(BaseReporter):
 
         return str(output_file)
 
+    @staticmethod
+    def _serialize_segment(segment) -> dict | None:
+        if segment is None:
+            return None
+        return {
+            "id": segment.id,
+            "source": segment.source,
+            "target": segment.target,
+            "metadata": segment.metadata,
+        }
+
+    @staticmethod
+    def _extract_report_data(html_content: str) -> dict:
+        match = re.search(
+            r'<script[^>]*id="report-data"[^>]*type="application/json"[^>]*>(.*?)</script>',
+            html_content,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        if not match:
+            raise ValueError("report-data JSON block not found in HTML")
+        return json.loads(match.group(1).strip())
+
+    @staticmethod
+    def _parse_change_type(raw_value: str) -> ChangeType:
+        value = (raw_value or "").upper()
+        try:
+            return ChangeType[value]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported change type: {raw_value}") from exc
+
+    @staticmethod
+    def _parse_chunk_type(raw_value: str) -> ChunkType:
+        value = (raw_value or "").upper()
+        try:
+            return ChunkType[value]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported chunk type: {raw_value}") from exc
+
     def _write_rich(
         self,
         worksheet,
@@ -156,6 +274,7 @@ class ExcelReporter(BaseReporter):
         cell_format,
         diff_formats: dict[ChunkType, object],
         side: str,
+        fallback: str = "",
     ) -> None:
         fragments: list[object] = []
         text_buffer: list[str] = []
@@ -168,7 +287,7 @@ class ExcelReporter(BaseReporter):
                 fragments.append("".join(text_buffer))
                 text_buffer.clear()
 
-            if chunk.type == ChunkType.DELETE and side == "old":
+            if chunk.type == ChunkType.DELETE and side in {"old", "new"}:
                 fragments.append(diff_formats[ChunkType.DELETE])
                 fragments.append(chunk.text)
             elif chunk.type == ChunkType.INSERT and side == "new":
@@ -179,6 +298,8 @@ class ExcelReporter(BaseReporter):
             fragments.append("".join(text_buffer))
 
         plain_text = self._plain_text(diffs, side)
+        if not plain_text:
+            plain_text = fallback
         string_fragments = [item for item in fragments if isinstance(item, str)]
         if len(string_fragments) < 2:
             worksheet.write(row, col, plain_text, cell_format)
@@ -196,6 +317,8 @@ class ExcelReporter(BaseReporter):
             if chunk.type == ChunkType.EQUAL:
                 parts.append(chunk.text)
             elif chunk.type == ChunkType.DELETE and side == "old":
+                parts.append(chunk.text)
+            elif chunk.type == ChunkType.DELETE and side == "new":
                 parts.append(chunk.text)
             elif chunk.type == ChunkType.INSERT and side == "new":
                 parts.append(chunk.text)

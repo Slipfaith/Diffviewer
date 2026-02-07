@@ -33,11 +33,6 @@ body {
   color: #6b7280;
 }
 
-.excel-note {
-  font-size: 13px;
-  color: #1d4ed8;
-}
-
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -102,6 +97,7 @@ body {
   padding: 12px 14px;
   border-bottom: 1px solid #e5e7eb;
   vertical-align: top;
+  white-space: pre-wrap;
 }
 
 .report-table th {
@@ -151,7 +147,7 @@ del {
   background: #fecaca;
   color: #7f1d1d;
   text-decoration: line-through;
-  padding: 0 2px;
+  padding: 0 1px;
   border-radius: 3px;
 }
 
@@ -159,7 +155,7 @@ ins {
   background: #bbf7d0;
   color: #14532d;
   text-decoration: none;
-  padding: 0 2px;
+  padding: 0 1px;
   border-radius: 3px;
 }
 

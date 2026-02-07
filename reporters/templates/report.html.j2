@@ -12,7 +12,6 @@
     <h1>Change Tracker</h1>
     <div class="subtitle">{{ file_a_name }} vs {{ file_b_name }}</div>
     <div class="meta">Generated: {{ timestamp }}</div>
-    <div class="excel-note">Excel report generated alongside this HTML.</div>
   </header>
 
   <section class="stats">
@@ -68,8 +67,8 @@
         <td>{{ row.index }}</td>
         <td>{{ row.segment_id }}</td>
         <td>{{ row.source }}</td>
-        <td>{{ row.old_target|safe }}</td>
-        <td>{{ row.new_target|safe }}</td>
+        <td class="diff-cell old-target">{{ row.old_target|safe }}</td>
+        <td class="diff-cell new-target">{{ row.new_target|safe }}</td>
         <td class="type-cell">{{ row.change_type }}</td>
       </tr>
       {% endfor %}
@@ -82,12 +81,12 @@
     const changedTypes = new Set(['added', 'deleted', 'modified', 'moved']);
 
     function setActive(button) {
-      buttons.forEach(btn => btn.classList.remove('active'));
+      buttons.forEach((btn) => btn.classList.remove('active'));
       button.classList.add('active');
     }
 
     function applyFilter(filter) {
-      rows.forEach(row => {
+      rows.forEach((row) => {
         if (filter === 'all') {
           row.classList.remove('hidden');
           return;
@@ -108,7 +107,7 @@
       });
     }
 
-    buttons.forEach(button => {
+    buttons.forEach((button) => {
       button.addEventListener('click', () => {
         const filter = button.dataset.filter;
         setActive(button);
@@ -117,7 +116,6 @@
     });
 
     applyFilter('changed');
-
   </script>
 </body>
 </html>
