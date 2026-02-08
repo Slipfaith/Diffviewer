@@ -185,34 +185,51 @@ class Orchestrator:
         if len(extensions) != 1:
             raise UnsupportedFormatError("mixed formats")
 
+        path_objects = [Path(path) for path in files]
+        base_path = path_objects[0]
+
+        self._progress("Selecting parser", 0.05)
+        try:
+            parser = ParserRegistry.get_parser(str(base_path))
+        except UnsupportedFormatError as exc:
+            raise UnsupportedFormatError(base_path.suffix.lower()) from exc
+
+        documents = []
+        total_parse = len(path_objects)
+        for idx, path in enumerate(path_objects, start=1):
+            self._progress(
+                f"Parsing version {idx}/{total_parse}...",
+                0.1 + (idx / max(1, total_parse)) * 0.35,
+            )
+            try:
+                documents.append(parser.parse(str(path)))
+            except ParseError as exc:
+                raise ParseError(str(path), exc.reason) from exc
+
         comparisons: list[ComparisonResult] = []
-        report_paths: list[list[str]] = []
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
-        for idx in range(len(files) - 1):
+        total_compare = len(documents) - 1
+        for idx in range(total_compare):
+            step = idx + 1
             self._progress(
-                f"Comparing version {idx + 1}/{len(files) - 1}...",
-                (idx + 1) / (len(files) - 1),
+                f"Comparing version {step} to {step + 1}...",
+                0.5 + (step / max(1, total_compare)) * 0.35,
             )
-            pair_output_dir = output_dir_path / f"v{idx + 1}_to_v{idx + 2}"
-            outputs = self.compare_files(
-                files[idx],
-                files[idx + 1],
-                str(pair_output_dir),
-            )
-            if self.last_result is not None:
-                comparisons.append(self.last_result)
-            report_paths.append(outputs)
+            comparisons.append(DiffEngine.compare(documents[idx], documents[idx + 1]))
 
         multi = MultiVersionResult(
             file_paths=files,
             comparisons=comparisons,
-            report_paths=report_paths,
+            documents=documents,
+            report_paths=[],
         )
 
+        self._progress("Generating summary report", 0.9)
         summary_path = output_dir_path / "versions_summary.html"
         SummaryReporter().generate_versions(multi, str(summary_path))
+        self._progress("Done", 1.0)
         return multi
 
     def _progress(self, message: str, value: float) -> None:

@@ -4,14 +4,23 @@ import sys
 
 
 def main() -> None:
-    if len(sys.argv) > 1:
-        from cli import main as cli_main
+    if len(sys.argv) <= 1:
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+                console = ctypes.windll.kernel32.GetConsoleWindow()
+                if console:
+                    ctypes.windll.user32.ShowWindow(console, 0)
+            except Exception:
+                pass
+        from ui.main_window import run_gui
 
-        raise SystemExit(cli_main())
+        run_gui()
+        return
 
-    from ui.main_window import run_gui
+    from cli import main as cli_main
 
-    run_gui()
+    raise SystemExit(cli_main())
 
 
 if __name__ == "__main__":

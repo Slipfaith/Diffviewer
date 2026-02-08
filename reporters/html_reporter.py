@@ -7,6 +7,7 @@ from pathlib import Path
 from jinja2 import Template
 
 from core.models import ChangeType, ChunkType, ComparisonResult, DiffChunk
+from core.utils import resource_path
 from reporters.base import BaseReporter
 
 
@@ -20,8 +21,9 @@ class HtmlReporter(BaseReporter):
         if output_file.suffix.lower() != self.output_extension:
             output_file = output_file.with_suffix(self.output_extension)
 
-        template_path = Path(__file__).resolve().parent / "templates" / "report.html.j2"
-        styles_path = Path(__file__).resolve().parent / "templates" / "styles.css"
+        template_dir = Path(resource_path("reporters/templates"))
+        template_path = template_dir / "report.html.j2"
+        styles_path = template_dir / "styles.css"
         template = Template(template_path.read_text(encoding="utf-8"))
         styles = styles_path.read_text(encoding="utf-8")
 

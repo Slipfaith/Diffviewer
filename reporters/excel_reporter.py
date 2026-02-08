@@ -353,8 +353,10 @@ class ExcelReporter(BaseReporter):
             plain_text = fallback if fallback is not None else ""
         plain_text = str(plain_text)
 
-        string_fragments = [item for item in fragments if isinstance(item, str)]
-        if len(string_fragments) < 2:
+        # XlsxWriter requires more than two rich fragments and emits a warning
+        # otherwise. Also skip rich-string write when we have no styled runs.
+        has_rich_runs = any(not isinstance(item, str) for item in fragments)
+        if len(fragments) <= 2 or not has_rich_runs:
             self._write_text(worksheet, row, col, plain_text, cell_format)
             return
 

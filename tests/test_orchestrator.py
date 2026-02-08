@@ -131,8 +131,22 @@ def test_orchestrator_compare_versions(tmp_path: Path) -> None:
     orchestrator = Orchestrator()
     result = orchestrator.compare_versions([str(v1), str(v2), str(v3)], str(tmp_path))
     assert len(result.comparisons) == 2
-    assert len(result.report_paths) == 2
-    assert all(any(path.endswith(".html") for path in outputs) for outputs in result.report_paths)
-    assert all(any(path.endswith(".xlsx") for path in outputs) for outputs in result.report_paths)
+    assert len(result.documents) == 3
+    assert result.report_paths == []
+    assert result.comparisons[0].file_a.file_path == str(v1)
+    assert result.comparisons[0].file_b.file_path == str(v2)
+    assert result.comparisons[1].file_a.file_path == str(v2)
+    assert result.comparisons[1].file_b.file_path == str(v3)
     assert result.summary_report_path is not None
     assert Path(result.summary_report_path).exists()
+    summary_text = Path(result.summary_report_path).read_text(encoding="utf-8")
+    assert "Target: v1.txt" in summary_text
+    assert "Target: v2.txt" in summary_text
+    assert "Target: v3.txt" in summary_text
+    assert "Changes in v1.txt (base)" in summary_text
+    assert "Changes in v2.txt" in summary_text
+    assert "Changes in v3.txt" in summary_text
+    assert "version-ins-1" in summary_text
+    assert "version-ins-2" in summary_text
+    assert "data-filter=\"all\"" in summary_text
+    assert "data-filter=\"changed\"" in summary_text

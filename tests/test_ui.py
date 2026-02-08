@@ -36,9 +36,9 @@ def test_file_drop_zone_creation(app: QApplication) -> None:
 
 
 def test_comparison_worker_creation() -> None:
-    worker = ComparisonWorker("file", {"file_a": "a", "file_b": "b", "output_dir": "out"})
+    worker = ComparisonWorker("file", {"pairs": [("a", "b")], "output_dir": "out"})
     assert worker.mode == "file"
-    assert "file_a" in worker.payload
+    assert "pairs" in worker.payload
 
 
 def test_main_window_mode_switching(app: QApplication) -> None:
@@ -47,10 +47,6 @@ def test_main_window_mode_switching(app: QApplication) -> None:
     window._set_mode(window.MODE_FILE)
     assert window.current_mode == window.MODE_FILE
     assert window.compare_btn.text() == "Compare"
-
-    window._set_mode(window.MODE_BATCH)
-    assert window.current_mode == window.MODE_BATCH
-    assert window.compare_btn.text() == "Compare All"
 
     window._set_mode(window.MODE_VERSIONS)
     assert window.current_mode == window.MODE_VERSIONS

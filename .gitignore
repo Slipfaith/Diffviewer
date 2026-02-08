@@ -49,4 +49,6 @@ tools/**/bin/
 tools/**/obj/
 *.exe
 *.dll
-*.pdb
+*.pdb+
+*.html
+*.xlsx

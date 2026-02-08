@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import warnings
 
 import openpyxl
 import pytest
@@ -336,3 +337,45 @@ def test_excel_reporter_rich_text_falls_back_when_write_fails(
 
     assert ws["D2"].value == "A old text"
     assert ws["E2"].value == "A new text"
+
+
+def test_excel_reporter_does_not_warn_on_two_fragment_rich_case(
+    tmp_path: Path,
+) -> None:
+    seg_before = make_segment("1", "abc")
+    seg_after = make_segment("1", "ac")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.EQUAL, text="a"),
+                DiffChunk(type=ChunkType.DELETE, text="b"),
+                DiffChunk(type=ChunkType.EQUAL, text="c"),
+            ],
+            similarity=0.9,
+            context=seg_after.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg_before]),
+        file_b=make_doc("b.txt", [seg_after]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        output_file = reporter.generate(result, str(tmp_path / "no_warning.xlsx"))
+
+    assert not any(
+        "more than 2 format/fragments for rich strings" in str(w.message)
+        for w in caught
+    )
+
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+    assert ws["E2"].value == "ac"

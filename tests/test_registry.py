@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 import sys
 import pytest
 
 from core.models import ParsedDocument, UnsupportedFormatError
-from core.registry import ParserRegistry, ReporterRegistry
+from core.registry import (
+    PARSER_HIDDEN_IMPORTS,
+    REPORTER_HIDDEN_IMPORTS,
+    ParserRegistry,
+    ReporterRegistry,
+)
 from parsers.base import BaseParser
 from reporters.base import BaseReporter
 
@@ -165,3 +171,45 @@ def test_reporter_register_and_duplicates() -> None:
 
     with pytest.raises(ValueError):
         ReporterRegistry.register(DuplicateReporter)
+
+
+def test_hidden_import_modules_load() -> None:
+    for module_name in PARSER_HIDDEN_IMPORTS + REPORTER_HIDDEN_IMPORTS:
+        module = importlib.import_module(module_name)
+        assert module is not None
+
+
+def test_parser_discover_fallback_without_filesystem_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ParserRegistry._parsers.clear()
+
+    monkeypatch.setattr(
+        ParserRegistry,
+        "_discover_package",
+        staticmethod(lambda package_name, base_class, register: None),
+    )
+
+    ParserRegistry.discover()
+    supported = ParserRegistry.supported_extensions()
+    assert ".txt" in supported
+    assert ".xliff" in supported
+    assert ".sdlxliff" in supported
+
+
+def test_reporter_discover_fallback_without_filesystem_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ReporterRegistry._reporters.clear()
+
+    monkeypatch.setattr(
+        ReporterRegistry,
+        "_discover_package",
+        staticmethod(lambda package_name, base_class, register: None),
+    )
+
+    ReporterRegistry.discover()
+    supported = ReporterRegistry.supported_extensions()
+    assert ".html" in supported
+    assert ".xlsx" in supported
+    assert ".docx" in supported

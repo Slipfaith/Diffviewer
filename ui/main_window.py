@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -28,12 +30,76 @@ from PyQt6.QtWidgets import (
 from core.models import UnsupportedFormatError
 from core.registry import ParserRegistry
 from ui.comparison_worker import ComparisonWorker
-from ui.file_drop_zone import FileDropZone
+from ui.file_tile_drop_zone import FileTileDropZone, TileVisualState
+
+
+class VersionFileListWidget(QListWidget):
+    files_dropped = pyqtSignal(list)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.source() is self:
+            super().dragEnterEvent(event)
+            return
+        if self.extract_paths_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:  # type: ignore[override]
+        if event.source() is self:
+            super().dragMoveEvent(event)
+            return
+        if self.extract_paths_from_mime(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        if event.source() is self:
+            super().dropEvent(event)
+            return
+        paths = self.extract_paths_from_mime(event.mimeData())
+        if paths:
+            self.files_dropped.emit(paths)
+            event.acceptProposedAction()
+            return
+        super().dropEvent(event)
+
+    @staticmethod
+    def extract_paths_from_mime(mime_data) -> list[str]:
+        candidates: list[str] = []
+
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                local = url.toLocalFile()
+                if local:
+                    candidates.append(local)
+        elif mime_data.hasText():
+            candidates.extend(
+                line.strip()
+                for line in mime_data.text().splitlines()
+                if line.strip()
+            )
+
+        paths: list[str] = []
+        for raw in candidates:
+            path = Path(raw)
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                resolved = str(path.resolve())
+            except Exception:
+                resolved = str(path)
+            paths.append(resolved)
+        return paths
 
 
 class MainWindow(QMainWindow):
     MODE_FILE = "file"
-    MODE_BATCH = "batch"
     MODE_VERSIONS = "versions"
 
     def __init__(self) -> None:
@@ -46,10 +112,8 @@ class MainWindow(QMainWindow):
         self.last_html_report: str | None = None
         self.last_excel_report: str | None = None
 
-        self.file_a_path = ""
-        self.file_b_path = ""
-        self.folder_a_path = ""
-        self.folder_b_path = ""
+        self.manual_file_pairs: dict[str, str] = {}
+        self.pending_file_a: str | None = None
 
         self.setWindowTitle("Change Tracker")
         self.setMinimumSize(800, 500)
@@ -79,15 +143,13 @@ class MainWindow(QMainWindow):
         self.mode_group.setExclusive(True)
 
         self.file_mode_btn = self._make_mode_button("File vs File", self.MODE_FILE)
-        self.batch_mode_btn = self._make_mode_button(
-            "Batch (Folder vs Folder)", self.MODE_BATCH
-        )
         self.versions_mode_btn = self._make_mode_button(
             "Multi-Version", self.MODE_VERSIONS
         )
+        self.versions_mode_btn.setAcceptDrops(True)
+        self.versions_mode_btn.installEventFilter(self)
 
         layout.addWidget(self.file_mode_btn)
-        layout.addWidget(self.batch_mode_btn)
         layout.addWidget(self.versions_mode_btn)
         layout.addStretch(1)
         return layout
@@ -95,59 +157,46 @@ class MainWindow(QMainWindow):
     def _build_mode_stack(self) -> QStackedWidget:
         self.mode_stack = QStackedWidget(self)
         self.file_page = self._build_file_mode_page()
-        self.batch_page = self._build_batch_mode_page()
         self.versions_page = self._build_versions_mode_page()
         self.mode_stack.addWidget(self.file_page)
-        self.mode_stack.addWidget(self.batch_page)
         self.mode_stack.addWidget(self.versions_page)
         return self.mode_stack
 
     def _build_file_mode_page(self) -> QWidget:
         page = QWidget(self)
-        layout = QHBoxLayout(page)
-        layout.setSpacing(12)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
 
-        self.file_a_zone, file_a_browse = self._build_file_selector(
+        lists_row = QHBoxLayout()
+        lists_row.setSpacing(12)
+
+        self.file_a_zone = FileTileDropZone(
             "File A",
-            accept_directories=False,
+            allowed_extensions=self.supported_extensions,
+            parent=self,
         )
-        self.file_b_zone, file_b_browse = self._build_file_selector(
+        self.file_b_zone = FileTileDropZone(
             "File B",
-            accept_directories=False,
+            allowed_extensions=self.supported_extensions,
+            parent=self,
         )
-        self.file_a_zone.file_dropped.connect(self._set_file_a_path)
-        self.file_b_zone.file_dropped.connect(self._set_file_b_path)
-        file_a_browse.clicked.connect(self._browse_file_a)
-        file_b_browse.clicked.connect(self._browse_file_b)
+        self.file_a_zone.files_changed.connect(self._on_file_lists_changed)
+        self.file_b_zone.files_changed.connect(self._on_file_lists_changed)
+        self.file_a_zone.file_left_clicked.connect(self._on_file_a_tile_clicked)
+        self.file_b_zone.file_left_clicked.connect(self._on_file_b_tile_clicked)
 
-        layout.addWidget(self._wrap_selector("File A", self.file_a_zone, file_a_browse))
-        layout.addWidget(self._wrap_selector("File B", self.file_b_zone, file_b_browse))
-        return page
+        lists_row.addWidget(self.file_a_zone)
+        lists_row.addWidget(self.file_b_zone)
+        layout.addLayout(lists_row, 1)
 
-    def _build_batch_mode_page(self) -> QWidget:
-        page = QWidget(self)
-        layout = QHBoxLayout(page)
-        layout.setSpacing(12)
+        controls = QHBoxLayout()
+        self.clear_file_lists_btn = QPushButton("Clear lists")
+        self.clear_file_lists_btn.clicked.connect(self._clear_file_lists)
+        controls.addStretch(1)
+        controls.addWidget(self.clear_file_lists_btn)
+        layout.addLayout(controls)
 
-        self.folder_a_zone, folder_a_browse = self._build_file_selector(
-            "Folder A",
-            accept_directories=True,
-        )
-        self.folder_b_zone, folder_b_browse = self._build_file_selector(
-            "Folder B",
-            accept_directories=True,
-        )
-        self.folder_a_zone.file_dropped.connect(self._set_folder_a_path)
-        self.folder_b_zone.file_dropped.connect(self._set_folder_b_path)
-        folder_a_browse.clicked.connect(self._browse_folder_a)
-        folder_b_browse.clicked.connect(self._browse_folder_b)
-
-        layout.addWidget(
-            self._wrap_selector("Folder A", self.folder_a_zone, folder_a_browse)
-        )
-        layout.addWidget(
-            self._wrap_selector("Folder B", self.folder_b_zone, folder_b_browse)
-        )
+        self._refresh_file_pairing_visuals()
         return page
 
     def _build_versions_mode_page(self) -> QWidget:
@@ -159,15 +208,16 @@ class MainWindow(QMainWindow):
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
 
-        self.version_list = QListWidget(self)
+        self.version_list = VersionFileListWidget(self)
         self.version_list.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection
         )
         self.version_list.setDragDropMode(
-            QAbstractItemView.DragDropMode.InternalMove
+            QAbstractItemView.DragDropMode.DragDrop
         )
         self.version_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.version_list.setAlternatingRowColors(True)
+        self.version_list.files_dropped.connect(self._add_version_paths)
         self.version_list.model().rowsInserted.connect(self._update_action_state)
         self.version_list.model().rowsRemoved.connect(self._update_action_state)
         self.version_list.model().rowsMoved.connect(self._update_action_state)
@@ -225,33 +275,14 @@ class MainWindow(QMainWindow):
         self.compare_btn = QPushButton("Compare")
         self.compare_btn.setObjectName("compareButton")
         self.compare_btn.clicked.connect(self._start_comparison)
-        layout.addWidget(self.compare_btn)
+        self.compare_btn.setMinimumWidth(170)
+        self.compare_btn.setMaximumWidth(240)
+        action_row = QHBoxLayout()
+        action_row.addStretch(1)
+        action_row.addWidget(self.compare_btn)
+        action_row.addStretch(1)
+        layout.addLayout(action_row)
         return panel
-
-    def _build_file_selector(
-        self, title: str, *, accept_directories: bool
-    ) -> tuple[FileDropZone, QPushButton]:
-        zone = FileDropZone(
-            title,
-            accept_directories=accept_directories,
-            allowed_extensions=None if accept_directories else self.supported_extensions,
-        )
-        browse = QPushButton("Browse")
-        return zone, browse
-
-    def _wrap_selector(
-        self, title: str, zone: FileDropZone, browse_btn: QPushButton
-    ) -> QWidget:
-        wrapper = QFrame(self)
-        layout = QVBoxLayout(wrapper)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        label = QLabel(title)
-        label.setObjectName("sectionTitle")
-        layout.addWidget(label)
-        layout.addWidget(zone)
-        layout.addWidget(browse_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        return wrapper
 
     def _make_mode_button(self, text: str, mode: str) -> QPushButton:
         button = QPushButton(text)
@@ -266,70 +297,147 @@ class MainWindow(QMainWindow):
             self.mode_stack.setCurrentWidget(self.file_page)
             self.compare_btn.setText("Compare")
             self.file_mode_btn.setChecked(True)
-        elif mode == self.MODE_BATCH:
-            self.mode_stack.setCurrentWidget(self.batch_page)
-            self.compare_btn.setText("Compare All")
-            self.batch_mode_btn.setChecked(True)
+            self._refresh_file_pairing_visuals()
         else:
             self.mode_stack.setCurrentWidget(self.versions_page)
             self.compare_btn.setText("Compare Versions")
             self.versions_mode_btn.setChecked(True)
         self._update_action_state()
 
-    def _browse_file_a(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select File A",
-            "",
-            self._supported_filter(),
-        )
-        if path:
-            self._set_file_a_path(path)
+    def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
+        if watched is self.versions_mode_btn:
+            if event.type() in {QEvent.Type.DragEnter, QEvent.Type.DragMove}:
+                paths = VersionFileListWidget.extract_paths_from_mime(event.mimeData())
+                if paths:
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Type.Drop:
+                paths = VersionFileListWidget.extract_paths_from_mime(event.mimeData())
+                if paths:
+                    self._set_mode(self.MODE_VERSIONS)
+                    self._add_version_paths(paths)
+                    event.acceptProposedAction()
+                    return True
+        return super().eventFilter(watched, event)
 
-    def _browse_file_b(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select File B",
-            "",
-            self._supported_filter(),
-        )
-        if path:
-            self._set_file_b_path(path)
+    def _on_file_lists_changed(self, _paths: list[str]) -> None:
+        self._cleanup_file_pair_state()
+        self._refresh_file_pairing_visuals()
+        self._update_action_state()
 
-    def _browse_folder_a(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Folder A")
-        if path:
-            self._set_folder_a_path(path)
+    def _on_file_a_tile_clicked(self, file_path: str) -> None:
+        self.pending_file_a = file_path
+        self._refresh_file_pairing_visuals()
+        self._update_action_state()
 
-    def _browse_folder_b(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Select Folder B")
-        if path:
-            self._set_folder_b_path(path)
+    def _on_file_b_tile_clicked(self, file_path: str) -> None:
+        if self.pending_file_a is None:
+            return
+        self._set_manual_file_pair(self.pending_file_a, file_path)
+        self.pending_file_a = None
+        self._refresh_file_pairing_visuals()
+        self._update_action_state()
+
+    def _clear_file_lists(self) -> None:
+        self.file_a_zone.clear_files()
+        self.file_b_zone.clear_files()
+        self.manual_file_pairs.clear()
+        self.pending_file_a = None
+        self._refresh_file_pairing_visuals()
+        self._update_action_state()
+
+    def _cleanup_file_pair_state(self) -> None:
+        files_a = set(self.file_a_zone.file_paths())
+        files_b = set(self.file_b_zone.file_paths())
+        self.manual_file_pairs = {
+            file_a: file_b
+            for file_a, file_b in self.manual_file_pairs.items()
+            if file_a in files_a and file_b in files_b
+        }
+        if self.pending_file_a not in files_a:
+            self.pending_file_a = None
+
+    def _auto_file_pairs(
+        self, available_a: list[str], available_b: list[str]
+    ) -> dict[str, str]:
+        grouped_b: dict[str, list[str]] = defaultdict(list)
+        for file_b in available_b:
+            grouped_b[Path(file_b).name.casefold()].append(file_b)
+
+        pairs: dict[str, str] = {}
+        for file_a in available_a:
+            key = Path(file_a).name.casefold()
+            bucket = grouped_b.get(key)
+            if bucket:
+                pairs[file_a] = bucket.pop(0)
+        return pairs
+
+    def _current_file_pairs_map(self) -> dict[str, str]:
+        files_a = self.file_a_zone.file_paths()
+        files_b = self.file_b_zone.file_paths()
+        if not files_a or not files_b:
+            return {}
+
+        self._cleanup_file_pair_state()
+
+        used_a = set(self.manual_file_pairs.keys())
+        used_b = set(self.manual_file_pairs.values())
+        remaining_a = [path for path in files_a if path not in used_a]
+        remaining_b = [path for path in files_b if path not in used_b]
+
+        auto_pairs = self._auto_file_pairs(remaining_a, remaining_b)
+        combined = dict(self.manual_file_pairs)
+        combined.update(auto_pairs)
+        return combined
+
+    def _ordered_file_pairs(self) -> list[tuple[str, str]]:
+        files_a = self.file_a_zone.file_paths()
+        pairs_map = self._current_file_pairs_map()
+        return [(file_a, pairs_map[file_a]) for file_a in files_a if file_a in pairs_map]
+
+    def _set_manual_file_pair(self, file_a: str, file_b: str) -> None:
+        cleaned: dict[str, str] = {}
+        for key_a, key_b in self.manual_file_pairs.items():
+            if key_a == file_a or key_b == file_b:
+                continue
+            cleaned[key_a] = key_b
+        cleaned[file_a] = file_b
+        self.manual_file_pairs = cleaned
+
+    def _refresh_file_pairing_visuals(self) -> None:
+        files_a = self.file_a_zone.file_paths()
+        files_b = self.file_b_zone.file_paths()
+        active = bool(files_a and files_b)
+        pairs_map = self._current_file_pairs_map() if active else {}
+        matched_b = set(pairs_map.values())
+
+        states_a: dict[str, TileVisualState] = {}
+        states_b: dict[str, TileVisualState] = {}
+
+        for file_a in files_a:
+            is_matched = file_a in pairs_map
+            states_a[file_a] = TileVisualState(
+                matched=is_matched,
+                unmatched=active and not is_matched,
+                selected=file_a == self.pending_file_a,
+            )
+
+        show_candidates = active and self.pending_file_a is not None
+        for file_b in files_b:
+            is_matched = file_b in matched_b
+            states_b[file_b] = TileVisualState(
+                matched=is_matched,
+                unmatched=active and not is_matched,
+                candidate=show_candidates,
+            )
+
+        self.file_a_zone.apply_states(states_a)
+        self.file_b_zone.apply_states(states_b)
 
     def _browse_output_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if path:
             self.output_line.setText(path)
-
-    def _set_file_a_path(self, path: str) -> None:
-        self.file_a_path = path
-        self.file_a_zone.set_path(path)
-        self._update_action_state()
-
-    def _set_file_b_path(self, path: str) -> None:
-        self.file_b_path = path
-        self.file_b_zone.set_path(path)
-        self._update_action_state()
-
-    def _set_folder_a_path(self, path: str) -> None:
-        self.folder_a_path = path
-        self.folder_a_zone.set_path(path)
-        self._update_action_state()
-
-    def _set_folder_b_path(self, path: str) -> None:
-        self.folder_b_path = path
-        self.folder_b_zone.set_path(path)
-        self._update_action_state()
 
     def _add_version_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -338,9 +446,28 @@ class MainWindow(QMainWindow):
             "",
             self._supported_filter(),
         )
+        self._add_version_paths(paths)
+
+    def _add_version_paths(self, paths: list[str]) -> None:
+        existing = {self.version_list.item(i).text() for i in range(self.version_list.count())}
+        added = False
         for path in paths:
-            self.version_list.addItem(QListWidgetItem(path))
-        self._update_action_state()
+            candidate = Path(path)
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            if self.supported_extensions and candidate.suffix.lower() not in self.supported_extensions:
+                continue
+            try:
+                normalized = str(candidate.resolve())
+            except Exception:
+                normalized = str(candidate)
+            if normalized in existing:
+                continue
+            self.version_list.addItem(QListWidgetItem(normalized))
+            existing.add(normalized)
+            added = True
+        if added:
+            self._update_action_state()
 
     def _remove_selected_versions(self) -> None:
         selected = self.version_list.selectedItems()
@@ -356,28 +483,25 @@ class MainWindow(QMainWindow):
 
         payload: dict[str, object]
         if self.current_mode == self.MODE_FILE:
-            if not self.file_a_path or not self.file_b_path:
+            pairs = self._ordered_file_pairs()
+            if not pairs:
                 return
-            ext_a = Path(self.file_a_path).suffix.lower()
-            ext_b = Path(self.file_b_path).suffix.lower()
-            if ext_a != ext_b:
+            mismatched = [
+                (file_a, file_b)
+                for file_a, file_b in pairs
+                if Path(file_a).suffix.lower() != Path(file_b).suffix.lower()
+            ]
+            if mismatched:
+                bad_a, bad_b = mismatched[0]
                 QMessageBox.warning(
                     self,
                     "Invalid input",
-                    "Files must have the same extension.",
+                    "Mapped files must have the same extension:\n"
+                    f"{Path(bad_a).name} vs {Path(bad_b).name}",
                 )
                 return
             payload = {
-                "file_a": self.file_a_path,
-                "file_b": self.file_b_path,
-                "output_dir": output_dir,
-            }
-        elif self.current_mode == self.MODE_BATCH:
-            if not self.folder_a_path or not self.folder_b_path:
-                return
-            payload = {
-                "folder_a": self.folder_a_path,
-                "folder_b": self.folder_b_path,
+                "pairs": pairs,
                 "output_dir": output_dir,
             }
         else:
@@ -413,50 +537,62 @@ class MainWindow(QMainWindow):
 
         mode = payload.get("mode")
         if mode == self.MODE_FILE:
-            outputs = [str(path) for path in payload.get("outputs", [])]
-            self.last_html_report = next(
-                (path for path in outputs if path.lower().endswith(".html")), None
-            )
-            self.last_excel_report = next(
-                (path for path in outputs if path.lower().endswith(".xlsx")), None
-            )
-            comparison = payload.get("comparison")
-            if comparison is not None:
-                stats = comparison.statistics
+            if payload.get("multi"):
+                file_results = list(payload.get("file_results", []))
+                successful = [item for item in file_results if not item.get("error")]
+                failed = [item for item in file_results if item.get("error")]
+
+                self.last_html_report = None
+                self.last_excel_report = None
+                if successful:
+                    first_outputs = [str(path) for path in successful[0].get("outputs", [])]
+                    self.last_html_report = next(
+                        (path for path in first_outputs if path.lower().endswith(".html")),
+                        None,
+                    )
+                    self.last_excel_report = next(
+                        (path for path in first_outputs if path.lower().endswith(".xlsx")),
+                        None,
+                    )
+
                 self.statusBar().showMessage(
-                    "Done: total={total}, added={added}, deleted={deleted}, "
-                    "modified={modified}, unchanged={unchanged}".format(
-                        total=stats.total_segments,
-                        added=stats.added,
-                        deleted=stats.deleted,
-                        modified=stats.modified,
-                        unchanged=stats.unchanged,
+                    "Done: compared={ok}, errors={err}, pairs={total}".format(
+                        ok=len(successful),
+                        err=len(failed),
+                        total=len(file_results),
                     )
                 )
-            if (
-                Path(self.file_a_path).suffix.lower() == ".docx"
-                and not any(path.lower().endswith(".docx") for path in outputs)
-            ):
-                QMessageBox.warning(
-                    self,
-                    "Word unavailable",
-                    "Microsoft Word not found, Track Changes unavailable. "
-                    "HTML and Excel reports will be generated.",
+                if failed:
+                    preview = "\n".join(
+                        f"- {Path(item['file_a']).name} vs {Path(item['file_b']).name}: {item['error']}"
+                        for item in failed[:5]
+                    )
+                    QMessageBox.warning(
+                        self,
+                        "Some comparisons failed",
+                        preview,
+                    )
+            else:
+                outputs = [str(path) for path in payload.get("outputs", [])]
+                self.last_html_report = next(
+                    (path for path in outputs if path.lower().endswith(".html")), None
                 )
-        elif mode == self.MODE_BATCH:
-            result = payload["result"]
-            self.last_html_report = result.summary_report_path
-            self.last_excel_report = result.summary_excel_path
-            self.statusBar().showMessage(
-                "Done: total={total}, compared={compared}, only_in_a={only_a}, "
-                "only_in_b={only_b}, errors={errors}".format(
-                    total=result.total_files,
-                    compared=result.compared_files,
-                    only_a=result.only_in_a,
-                    only_b=result.only_in_b,
-                    errors=result.errors,
+                self.last_excel_report = next(
+                    (path for path in outputs if path.lower().endswith(".xlsx")), None
                 )
-            )
+                comparison = payload.get("comparison")
+                if comparison is not None:
+                    stats = comparison.statistics
+                    self.statusBar().showMessage(
+                        "Done: total={total}, added={added}, deleted={deleted}, "
+                        "modified={modified}, unchanged={unchanged}".format(
+                            total=stats.total_segments,
+                            added=stats.added,
+                            deleted=stats.deleted,
+                            modified=stats.modified,
+                            unchanged=stats.unchanged,
+                        )
+                    )
         elif mode == self.MODE_VERSIONS:
             result = payload["result"]
             self.last_html_report = result.summary_report_path
@@ -497,9 +633,7 @@ class MainWindow(QMainWindow):
         output_ok = bool(self.output_line.text().strip())
         enabled = False
         if self.current_mode == self.MODE_FILE:
-            enabled = bool(self.file_a_path and self.file_b_path and output_ok)
-        elif self.current_mode == self.MODE_BATCH:
-            enabled = bool(self.folder_a_path and self.folder_b_path and output_ok)
+            enabled = bool(self._ordered_file_pairs() and output_ok)
         elif self.current_mode == self.MODE_VERSIONS:
             enabled = bool(self.version_list.count() >= 2 and output_ok)
         self.compare_btn.setEnabled(enabled and self.worker is None)
@@ -552,6 +686,26 @@ QFrame#bottomPanel {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
 }
+QFrame#fileTileDropZone {
+  background: #f8fafc;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+}
+QLabel#fileTileDropZoneTitle {
+  color: #334155;
+  font-weight: 600;
+  font-size: 12px;
+}
+QListWidget#fileTileList {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 6px;
+}
+QLabel#fileTileHint {
+  color: #64748b;
+  font-size: 12px;
+}
 QLabel#sectionTitle {
   font-weight: 600;
   color: #334155;
@@ -574,4 +728,3 @@ def run_gui() -> None:
     window = MainWindow()
     window.show()
     app.exec()
-

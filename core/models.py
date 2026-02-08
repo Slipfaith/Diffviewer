@@ -210,5 +210,6 @@ class BatchResult:
 class MultiVersionResult:
     file_paths: list[str]
     comparisons: list[ComparisonResult]
+    documents: list[ParsedDocument] = field(default_factory=list)
     report_paths: list[list[str]] = field(default_factory=list)
     summary_report_path: str | None = None

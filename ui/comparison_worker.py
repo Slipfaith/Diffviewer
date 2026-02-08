@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -21,6 +22,54 @@ class ComparisonWorker(QThread):
         orchestrator = Orchestrator(on_progress=self._emit_progress)
         try:
             if self.mode == "file":
+                if "pairs" in self.payload:
+                    pairs = list(self.payload["pairs"])
+                    file_results: list[dict[str, Any]] = []
+                    total = max(1, len(pairs))
+                    for index, pair in enumerate(pairs, start=1):
+                        file_a, file_b = pair
+                        pair_name = self._pair_folder_name(index, str(file_a), str(file_b))
+                        pair_output = str(Path(self.payload["output_dir"]) / pair_name)
+                        self._emit_progress(
+                            f"Comparing {index}/{len(pairs)}: {Path(file_a).name} vs {Path(file_b).name}",
+                            (index - 1) / total,
+                        )
+                        try:
+                            outputs = orchestrator.compare_files(
+                                str(file_a),
+                                str(file_b),
+                                pair_output,
+                            )
+                            file_results.append(
+                                {
+                                    "file_a": str(file_a),
+                                    "file_b": str(file_b),
+                                    "outputs": outputs,
+                                    "comparison": orchestrator.last_result,
+                                    "error": None,
+                                }
+                            )
+                        except Exception as exc:  # pragma: no cover - signal path
+                            file_results.append(
+                                {
+                                    "file_a": str(file_a),
+                                    "file_b": str(file_b),
+                                    "outputs": [],
+                                    "comparison": None,
+                                    "error": str(exc),
+                                }
+                            )
+
+                    self._emit_progress("Done", 1.0)
+                    self.finished.emit(
+                        {
+                            "mode": "file",
+                            "multi": True,
+                            "file_results": file_results,
+                        }
+                    )
+                    return
+
                 outputs = orchestrator.compare_files(
                     self.payload["file_a"],
                     self.payload["file_b"],
@@ -29,6 +78,7 @@ class ComparisonWorker(QThread):
                 self.finished.emit(
                     {
                         "mode": "file",
+                        "multi": False,
                         "outputs": outputs,
                         "comparison": orchestrator.last_result,
                     }
@@ -59,3 +109,10 @@ class ComparisonWorker(QThread):
     def _emit_progress(self, message: str, value: float) -> None:
         self.progress.emit(message, value)
 
+    @staticmethod
+    def _pair_folder_name(index: int, file_a: str, file_b: str) -> str:
+        raw = f"{index:03d}_{Path(file_a).stem}_vs_{Path(file_b).stem}"
+        safe = raw.replace(" ", "_")
+        for bad in '<>:"/\\|?*':
+            safe = safe.replace(bad, "_")
+        return safe

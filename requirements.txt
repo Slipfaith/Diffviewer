@@ -9,3 +9,4 @@ XlsxWriter
 diff-match-patch
 chardet
 PyQt6
+pyinstaller
