@@ -7,6 +7,7 @@ from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.orchestrator import Orchestrator
+from core.qa_verify import QASheetConfig, QAVerifier
 
 
 class ComparisonWorker(QThread):
@@ -101,6 +102,19 @@ class ComparisonWorker(QThread):
                     self.payload["output_dir"],
                 )
                 self.finished.emit({"mode": "versions", "result": result})
+                return
+
+            if self.mode == "qa_verify":
+                sheet_configs = [
+                    QASheetConfig.from_dict(item)
+                    if isinstance(item, dict)
+                    else item
+                    for item in self.payload.get("sheet_configs", [])
+                ]
+                final_files = [str(item) for item in self.payload.get("final_files", [])]
+                verifier = QAVerifier(on_progress=self._emit_progress)
+                result = verifier.verify(sheet_configs, final_files)
+                self.finished.emit({"mode": "qa_verify", "result": result})
                 return
 
             self.error.emit(f"Unknown worker mode: {self.mode}")

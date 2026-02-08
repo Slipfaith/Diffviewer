@@ -68,7 +68,7 @@ class Orchestrator:
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
-        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M")
+        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
         base_name = f"changereport_{timestamp_label}"
         html_path = output_dir_path / f"{base_name}.html"
         excel_path = output_dir_path / f"{base_name}.xlsx"
@@ -227,7 +227,8 @@ class Orchestrator:
         )
 
         self._progress("Generating summary report", 0.9)
-        summary_path = output_dir_path / "versions_summary.html"
+        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+        summary_path = output_dir_path / f"versions_summary_{timestamp_label}.html"
         SummaryReporter().generate_versions(multi, str(summary_path))
         self._progress("Done", 1.0)
         return multi

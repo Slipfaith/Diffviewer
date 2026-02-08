@@ -172,6 +172,7 @@ class FileTileDropZone(QFrame):
         self.setObjectName("fileTileDropZone")
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
@@ -189,6 +190,10 @@ class FileTileDropZone(QFrame):
         self.list_widget.setAlternatingRowColors(False)
         self.list_widget.setSpacing(6)
         self.list_widget.setMinimumHeight(200)
+        self.list_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self.list_widget.setContextMenuPolicy(
             Qt.ContextMenuPolicy.CustomContextMenu
         )
@@ -208,11 +213,16 @@ class FileTileDropZone(QFrame):
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             True,
         )
+        self._sync_hint_geometry()
         self._update_hint()
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
-        self.hint_label.resize(self.list_widget.viewport().size())
+        self._sync_hint_geometry()
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        self._sync_hint_geometry()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if self._extract_valid_paths(event):
@@ -243,6 +253,9 @@ class FileTileDropZone(QFrame):
 
     def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
         if watched in {self.list_widget, self.list_widget.viewport()}:
+            if watched is self.list_widget.viewport() and event.type() == QEvent.Type.Resize:
+                self._sync_hint_geometry()
+                return False
             if event.type() == QEvent.Type.MouseButtonDblClick:
                 mouse_event = event
                 if mouse_event.button() == Qt.MouseButton.LeftButton:
@@ -347,7 +360,11 @@ class FileTileDropZone(QFrame):
         self.files_changed.emit(self.file_paths())
 
     def _update_hint(self) -> None:
+        self._sync_hint_geometry()
         self.hint_label.setVisible(self.list_widget.count() == 0)
+
+    def _sync_hint_geometry(self) -> None:
+        self.hint_label.resize(self.list_widget.viewport().size())
 
     def _extract_valid_paths(self, event) -> list[str]:
         mime_data = event.mimeData()
