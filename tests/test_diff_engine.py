@@ -144,3 +144,32 @@ def test_case_only_change_uses_char_level_diff() -> None:
     assert change.type == ChangeType.MODIFIED
     assert any(chunk.type == ChunkType.DELETE and chunk.text == "H" for chunk in change.text_diff)
     assert any(chunk.type == ChunkType.INSERT and chunk.text == "h" for chunk in change.text_diff)
+
+
+def test_sdlxliff_same_id_low_similarity_stays_modified() -> None:
+    doc_a = make_doc([make_segment("209", "aaa", 1)], name="SDLXLIFF")
+    doc_b = make_doc([make_segment("209", "bbbbbbbbbbbbbbbbbbbb", 1)], name="SDLXLIFF")
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    assert result.statistics.modified == 1
+    assert result.statistics.added == 0
+    assert result.statistics.deleted == 0
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert change.segment_before is not None
+    assert change.segment_after is not None
+    assert change.segment_before.id == "209"
+    assert change.segment_after.id == "209"
+
+
+def test_sdlxliff_does_not_fuzzy_match_different_ids() -> None:
+    doc_a = make_doc([make_segment("101", "Same text", 1)], name="SDLXLIFF")
+    doc_b = make_doc([make_segment("202", "Same text", 1)], name="SDLXLIFF")
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert result.statistics.modified == 0
+    assert result.statistics.unchanged == 0
+    assert result.statistics.added == 1
+    assert result.statistics.deleted == 1
+    assert all(change.type != ChangeType.MODIFIED for change in result.changes)

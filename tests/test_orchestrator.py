@@ -20,12 +20,13 @@ def test_orchestrator_xliff(tmp_path: Path) -> None:
         str(tmp_path),
     )
     assert len(outputs) == 2
-    html_file = Path(outputs[0])
-    excel_file = Path(outputs[1])
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    excel_file = next(Path(output) for output in outputs if Path(output).suffix == ".xlsx")
     assert html_file.exists()
     assert excel_file.exists()
-    assert html_file.suffix == ".html"
-    assert excel_file.suffix == ".xlsx"
+    assert html_file.name.startswith("changereport_")
+    assert excel_file.name.startswith("changereport_")
+    assert html_file.stem == excel_file.stem
 
 
 def test_orchestrator_txt(tmp_path: Path) -> None:
@@ -36,12 +37,13 @@ def test_orchestrator_txt(tmp_path: Path) -> None:
         str(tmp_path),
     )
     assert len(outputs) == 2
-    html_file = Path(outputs[0])
-    excel_file = Path(outputs[1])
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    excel_file = next(Path(output) for output in outputs if Path(output).suffix == ".xlsx")
     assert html_file.exists()
     assert excel_file.exists()
-    assert html_file.suffix == ".html"
-    assert excel_file.suffix == ".xlsx"
+    assert html_file.name.startswith("changereport_")
+    assert excel_file.name.startswith("changereport_")
+    assert html_file.stem == excel_file.stem
 
 
 def test_orchestrator_unsupported_format(tmp_path: Path) -> None:
@@ -87,7 +89,21 @@ def test_orchestrator_compare_folders(tmp_path: Path) -> None:
     assert batch.only_in_b == 1
     assert batch.errors == 1
     assert batch.summary_report_path is not None
+    assert batch.summary_excel_path is not None
     assert Path(batch.summary_report_path).exists()
+    assert Path(batch.summary_excel_path).exists()
+
+    statuses = {item.filename: item.status for item in batch.files}
+    assert statuses["shared.txt"] == "compared"
+    assert statuses["only_a.xliff"] == "only_in_a"
+    assert statuses["only_b.srt"] == "only_in_b"
+    assert statuses["bad.unknown"] == "error"
+
+    compared = next(item for item in batch.files if item.filename == "shared.txt")
+    assert any(path.endswith(".html") for path in compared.report_paths)
+    assert any(path.endswith(".xlsx") for path in compared.report_paths)
+    errored = next(item for item in batch.files if item.filename == "bad.unknown")
+    assert errored.error_message is not None
 
 
 def test_orchestrator_compare_folders_empty(tmp_path: Path) -> None:
@@ -98,7 +114,10 @@ def test_orchestrator_compare_folders_empty(tmp_path: Path) -> None:
     orchestrator = Orchestrator()
     batch = orchestrator.compare_folders(str(folder_a), str(folder_b), str(tmp_path))
     assert batch.total_files == 0
+    assert batch.summary_report_path is not None
+    assert batch.summary_excel_path is not None
     assert Path(batch.summary_report_path).exists()
+    assert Path(batch.summary_excel_path).exists()
 
 
 def test_orchestrator_compare_versions(tmp_path: Path) -> None:
@@ -112,5 +131,8 @@ def test_orchestrator_compare_versions(tmp_path: Path) -> None:
     orchestrator = Orchestrator()
     result = orchestrator.compare_versions([str(v1), str(v2), str(v3)], str(tmp_path))
     assert len(result.comparisons) == 2
+    assert len(result.report_paths) == 2
+    assert all(any(path.endswith(".html") for path in outputs) for outputs in result.report_paths)
+    assert all(any(path.endswith(".xlsx") for path in outputs) for outputs in result.report_paths)
     assert result.summary_report_path is not None
     assert Path(result.summary_report_path).exists()

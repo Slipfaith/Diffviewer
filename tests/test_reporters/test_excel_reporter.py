@@ -226,7 +226,7 @@ def test_excel_reporter_old_new_columns_logic(tmp_path: Path) -> None:
 
     # Row 2: MODIFIED
     assert ws["D2"].value == "A old text"
-    assert ws["E2"].value == "A old new text"
+    assert ws["E2"].value == "A new text"
     # Row 3: ADDED
     assert ws["D3"].value in ("", None)
     assert ws["E3"].value == "Only new"
@@ -261,3 +261,78 @@ def test_excel_reporter_hides_unchanged_by_default(tmp_path: Path) -> None:
     ws = workbook["Report"]
     assert ws.auto_filter.ref == "A1:F2"
     assert ws.row_dimensions[2].hidden is True
+
+
+def test_excel_reporter_keeps_formula_like_text_as_string(tmp_path: Path) -> None:
+    seg = make_segment("1", '=IF(1=1,"","")')
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "formula_like.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    assert ws["D2"].value == '=IF(1=1,"","")'
+    assert ws["D2"].data_type == "s"
+    assert ws["E2"].value == '=IF(1=1,"","")'
+    assert ws["E2"].data_type == "s"
+
+
+def test_excel_reporter_rich_text_falls_back_when_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seg_before = make_segment("1", "A old text")
+    seg_after = make_segment("1", "A new text")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.EQUAL, text="A "),
+                DiffChunk(type=ChunkType.DELETE, text="old "),
+                DiffChunk(type=ChunkType.INSERT, text="new "),
+                DiffChunk(type=ChunkType.EQUAL, text="text"),
+            ],
+            similarity=0.9,
+            context=seg_after.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg_before]),
+        file_b=make_doc("b.txt", [seg_after]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    from xlsxwriter.worksheet import Worksheet
+
+    def _always_fail_rich(self, row, col, *args):
+        return -3
+
+    monkeypatch.setattr(Worksheet, "write_rich_string", _always_fail_rich)
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "rich_fallback.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    assert ws["D2"].value == "A old text"
+    assert ws["E2"].value == "A new text"

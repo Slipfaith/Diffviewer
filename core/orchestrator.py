@@ -97,6 +97,9 @@ class Orchestrator:
     def compare_folders(self, folder_a: str, folder_b: str, output_dir: str) -> BatchResult:
         path_a = Path(folder_a)
         path_b = Path(folder_b)
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
         files_a = {p.name.lower(): p for p in path_a.iterdir() if p.is_file()}
         files_b = {p.name.lower(): p for p in path_b.iterdir() if p.is_file()}
 
@@ -130,7 +133,12 @@ class Orchestrator:
                 continue
 
             try:
-                outputs = self.compare_files(str(file_a), str(file_b), output_dir)
+                pair_output_dir = output_dir_path / self._safe_stem(file_a.name)
+                outputs = self.compare_files(
+                    str(file_a),
+                    str(file_b),
+                    str(pair_output_dir),
+                )
                 stats = self.last_result.statistics if self.last_result is not None else None
                 results.append(
                     BatchFileResult(
@@ -138,6 +146,7 @@ class Orchestrator:
                         status="compared",
                         report_paths=outputs,
                         statistics=stats,
+                        comparison=self.last_result,
                     )
                 )
             except Exception as exc:
@@ -155,8 +164,17 @@ class Orchestrator:
             files=results,
         )
 
-        summary_path = Path(output_dir) / "batch_summary.html"
-        SummaryReporter().generate_batch(batch_result, str(summary_path))
+        summary_reporter = SummaryReporter()
+        summary_path = output_dir_path / "batch_summary.html"
+        summary_excel_path = output_dir_path / "batch_summary.xlsx"
+        batch_result.summary_report_path = summary_reporter.generate_batch(
+            batch_result,
+            str(summary_path),
+        )
+        batch_result.summary_excel_path = summary_reporter.generate_batch_excel(
+            batch_result,
+            str(summary_excel_path),
+        )
         return batch_result
 
     def compare_versions(self, files: list[str], output_dir: str) -> MultiVersionResult:
@@ -169,9 +187,20 @@ class Orchestrator:
 
         comparisons: list[ComparisonResult] = []
         report_paths: list[list[str]] = []
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
 
         for idx in range(len(files) - 1):
-            outputs = self.compare_files(files[idx], files[idx + 1], output_dir)
+            self._progress(
+                f"Comparing version {idx + 1}/{len(files) - 1}...",
+                (idx + 1) / (len(files) - 1),
+            )
+            pair_output_dir = output_dir_path / f"v{idx + 1}_to_v{idx + 2}"
+            outputs = self.compare_files(
+                files[idx],
+                files[idx + 1],
+                str(pair_output_dir),
+            )
             if self.last_result is not None:
                 comparisons.append(self.last_result)
             report_paths.append(outputs)
@@ -182,10 +211,17 @@ class Orchestrator:
             report_paths=report_paths,
         )
 
-        summary_path = Path(output_dir) / "versions_summary.html"
+        summary_path = output_dir_path / "versions_summary.html"
         SummaryReporter().generate_versions(multi, str(summary_path))
         return multi
 
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:
             self.on_progress(message, value)
+
+    @staticmethod
+    def _safe_stem(filename: str) -> str:
+        safe = filename.replace(" ", "_")
+        for bad in '<>:"/\\|?*':
+            safe = safe.replace(bad, "_")
+        return safe

@@ -173,6 +173,7 @@ class BatchFileResult:
     status: str
     report_paths: list[str] = field(default_factory=list)
     statistics: ChangeStatistics | None = None
+    comparison: ComparisonResult | None = None
     error_message: str | None = None
 
 
@@ -182,6 +183,7 @@ class BatchResult:
     folder_b: str
     files: list[BatchFileResult]
     summary_report_path: str | None = None
+    summary_excel_path: str | None = None
 
     @property
     def total_files(self) -> int:

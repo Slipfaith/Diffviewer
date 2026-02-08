@@ -105,6 +105,12 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
     assert "Added" in output_content
     assert "Deleted" in output_content
     assert "Modified" in output_content
+    assert "table-layout: fixed;" in output_content
+    assert "word-break: break-word;" in output_content
+    assert "overflow-wrap: anywhere;" in output_content
+    assert 'class="col-source"' in output_content
+    assert 'class="col-old-target"' in output_content
+    assert 'class="col-new-target"' in output_content
 
 
 def test_html_reporter_empty_result(tmp_path: Path) -> None:
@@ -143,7 +149,7 @@ def test_html_reporter_bidirectional_inline_diff_rules() -> None:
     new_html = reporter._render_new_target(modified)
     assert "<ins>" not in old_html
     assert "<del>old&middot;</del>" in old_html
-    assert "<del>old&middot;</del>" in new_html
+    assert "<del>old&middot;</del>" not in new_html
     assert "<ins>new&middot;</ins>" in new_html
 
 
@@ -173,3 +179,35 @@ def test_html_reporter_added_deleted_rules() -> None:
     assert reporter._render_new_target(added).startswith("<ins>")
     assert reporter._render_new_target(deleted) == ""
     assert reporter._render_old_target(deleted).startswith("<del>")
+
+
+def test_html_reporter_preserves_newlines(tmp_path: Path) -> None:
+    seg_before = make_segment("1", "Line 1\nLine 2")
+    seg_after = make_segment("1", "Line 1\nLine 2\nLine 3")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.EQUAL, text="Line 1\nLine 2"),
+                DiffChunk(type=ChunkType.INSERT, text="\nLine 3"),
+            ],
+            similarity=0.9,
+            context=seg_after.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg_before]),
+        file_b=make_doc("b.txt", [seg_after]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(reporter.generate(result, str(tmp_path / "newlines.html")))
+    output_content = output_path.read_text(encoding="utf-8")
+
+    assert "white-space: pre-wrap;" in output_content
+    assert "Line 1\nLine 2" in output_content

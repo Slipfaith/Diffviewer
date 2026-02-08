@@ -4,7 +4,6 @@
 
 Change Tracker — десктопное Windows-приложение на Python (Pyside6) для сравнения файлов перевода и файлов редактора. Программа выявляет добавленные, удалённые и изменённые элементы и генерирует наглядные отчёты.
 
-Для DOCX Track Changes используется отдельный C# модуль (`tools/docx_compare.exe`), вызываемый через `subprocess`.
 
 ## Стек
 
@@ -17,7 +16,6 @@ Change Tracker — десктопное Windows-приложение на Python
 - **Diff:** difflib (stdlib) + diff-match-patch
 - **CLI:** argparse
 - **Упаковка:** PyInstaller
-- **C# модуль:** .NET 8 + Open XML SDK (отдельный проект в `tools/docx_compare/`)
 
 ## Архитектура
 
@@ -87,8 +85,6 @@ change-tracker/
 │   ├── file_drop_zone.py
 │   └── comparison_worker.py
 ├── tools/
-│   ├── docx_compare.exe
-│   └── docx_compare/          # C# исходники
 ├── tests/
 │   ├── test_models.py
 │   ├── test_diff_engine.py
@@ -175,7 +171,7 @@ class FormatRun:
 - XLIFF парсеры наследуют `BaseXliffParser` — общая логика извлечения trans-unit, различия только в namespace и кастомных атрибутах
 - Excel: `openpyxl` для .xlsx, `xlrd` для .xls. Сегмент = ячейка. ID = "Sheet1!B5"
 - PPTX: `python-pptx`. Сегмент = текстовый shape. ID = "slide3_shape2"
-- DOCX: `python-docx` только для ЧТЕНИЯ. Track Changes генерирует C# модуль
+- DOCX: `python-docx` только для ЧТЕНИЯ. Track Changes генерируется через win32com (Microsoft Word COM)
 - SRT: парсить по стандарту SubRip (номер, таймкод, текст). ID = номер субтитра. Таймкод сохранять в metadata
 - TXT: одна строка = один сегмент. ID = номер строки
 
@@ -196,7 +192,6 @@ class FormatRun:
 
 - **HTML:** self-contained (один файл, CSS встроен), Jinja2 шаблон в `reporters/templates/`
 - **Excel:** `XlsxWriter`, rich text через `write_rich_string()`. Удалённое = красный + зачёркнутый. Добавленное = зелёный + подчёркнутый. Автофильтры. Закреплённая шапка. Лист статистики.
-- **DOCX Track Changes:** вызов `subprocess.run(["tools/docx_compare.exe", file_a, file_b, output])`. Проверять exit code. При ошибке или отсутствии .exe — fallback на HTML+Excel с предупреждением.
 - Автовыбор: DOCX → Track Changes, всё остальное → HTML + Excel (оба генерируются)
 
 ### UI (Pyside6)
@@ -205,16 +200,6 @@ class FormatRun:
 - Drag & drop для файлов и папок
 - Прогресс через `on_progress` callback из Orchestrator
 - File dialog фильтрует по `ParserRegistry.supported_extensions()`
-
-### C# модуль
-
-- Путь: `tools/docx_compare/`
-- .NET 8, консольное приложение
-- Open XML SDK
-- Интерфейс: `docx_compare.exe <file_a> <file_b> <output> [--author "Change Tracker"]`
-- Exit code 0 = success, 1 = error (stderr)
-- Публикация: `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
-- Скомпилированный .exe кладётся в `tools/docx_compare.exe`
 
 ### Тесты
 
@@ -229,7 +214,7 @@ class FormatRun:
 
 - Парсер не может прочитать файл → понятное исключение `ParseError(filepath, reason)`
 - Неподдерживаемый формат → `UnsupportedFormatError(extension)`
-- C# модуль отсутствует → fallback с предупреждением, не крэш
+- Microsoft Word не найден → fallback с предупреждением, не крэш
 - Кодировка файла неизвестна → попробовать определить через `chardet`, fallback UTF-8
 
 ## Режимы сравнения
@@ -264,7 +249,7 @@ orchestrator.compare_versions([v1.xliff, v2.xliff, v3.xliff], output_dir)
 6. **core/orchestrator.py** + **cli.py**
 7. Остальные парсеры (sdlxliff, memoq, srt, xlsx, xls, pptx, docx)
 8. **reporters/excel_reporter.py**
-9. C# модуль + **reporters/docx_reporter.py**
+9. DOCX Track Changes (win32com) + **reporters/docx_reporter.py**
 10. Батч-обработка и мульти-версия в Orchestrator
 11. **ui/** — Pyside6 интерфейс
 12. PyInstaller сборка

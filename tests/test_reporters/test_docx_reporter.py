@@ -105,7 +105,7 @@ def test_docx_reporter_compare_documents_called(
     assert fake_word.quit_called is True
 
 
-def test_docx_reporter_quit_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_docx_reporter_falls_back_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = make_result(tmp_path)
     fake_word = FakeWord()
 
@@ -125,8 +125,9 @@ def test_docx_reporter_quit_on_error(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
 
     reporter = DocxTrackChangesReporter()
-    with pytest.raises(RuntimeError):
-        reporter.generate(result, str(tmp_path / "out.docx"))
+    output = reporter.generate(result, str(tmp_path / "out.docx"))
+    assert Path(output).suffix == ".html"
+    assert Path(output).exists()
     assert fake_word.quit_called is True
 
 
@@ -161,7 +162,7 @@ def test_docx_reporter_fallback_when_unavailable(
 ) -> None:
     result = make_result(tmp_path)
     reporter = DocxTrackChangesReporter()
-    monkeypatch.setattr(reporter, "is_available", lambda: False)
+    monkeypatch.setattr(docx_reporter, "win32com", None)
 
     output = reporter.generate(result, str(tmp_path / "report.docx"))
     assert Path(output).suffix == ".html"

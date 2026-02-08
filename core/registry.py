@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import inspect
 from pathlib import Path
-from typing import Type
+from typing import Callable, Type
 
 from core.models import UnsupportedFormatError
 from parsers.base import BaseParser
@@ -47,7 +47,7 @@ class ParserRegistry:
     def _discover_package(
         package_name: str,
         base_class: Type[BaseParser],
-        register: callable,
+        register: Callable,
     ) -> None:
         package_dir = Path(__file__).resolve().parents[1] / package_name
         if not package_dir.exists():
@@ -98,7 +98,7 @@ class ReporterRegistry:
     def _discover_package(
         package_name: str,
         base_class: Type[BaseReporter],
-        register: callable,
+        register: Callable,
     ) -> None:
         package_dir = Path(__file__).resolve().parents[1] / package_name
         if not package_dir.exists():

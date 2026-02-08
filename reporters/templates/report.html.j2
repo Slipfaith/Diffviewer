@@ -51,6 +51,14 @@
   </section>
 
   <table class="report-table">
+    <colgroup>
+      <col class="col-index">
+      <col class="col-id">
+      <col class="col-source">
+      <col class="col-old-target">
+      <col class="col-new-target">
+      <col class="col-type">
+    </colgroup>
     <thead>
       <tr>
         <th>#</th>
@@ -66,7 +74,7 @@
       <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}">
         <td>{{ row.index }}</td>
         <td>{{ row.segment_id }}</td>
-        <td>{{ row.source }}</td>
+        <td class="source-cell">{{ row.source|safe }}</td>
         <td class="diff-cell old-target">{{ row.old_target|safe }}</td>
         <td class="diff-cell new-target">{{ row.new_target|safe }}</td>
         <td class="type-cell">{{ row.change_type }}</td>

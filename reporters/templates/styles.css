@@ -85,6 +85,7 @@ body {
 
 .report-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   background: #ffffff;
   border-radius: 12px;
@@ -98,6 +99,39 @@ body {
   border-bottom: 1px solid #e5e7eb;
   vertical-align: top;
   white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.source-cell,
+.diff-cell {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.col-index {
+  width: 56px;
+}
+
+.col-id {
+  width: 140px;
+}
+
+.col-source {
+  width: 20%;
+}
+
+.col-old-target {
+  width: 28%;
+}
+
+.col-new-target {
+  width: 28%;
+}
+
+.col-type {
+  width: 96px;
 }
 
 .report-table th {

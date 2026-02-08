@@ -99,9 +99,17 @@ class SegmentMatcher:
         return MatchResult(pairs=pairs, unmatched_a=unmatched_a, unmatched_b=unmatched_b)
 
     @classmethod
-    def match(cls, doc_a: ParsedDocument, doc_b: ParsedDocument) -> MatchResult:
+    def match(
+        cls,
+        doc_a: ParsedDocument,
+        doc_b: ParsedDocument,
+        allow_fuzzy: bool = True,
+    ) -> MatchResult:
         initial = cls.match_by_id(doc_a.segments, doc_b.segments)
-        if not initial.unmatched_a and not initial.unmatched_b:
+        if (
+            not allow_fuzzy
+            or (not initial.unmatched_a and not initial.unmatched_b)
+        ):
             return initial
         fuzzy = cls.match_by_content(initial.unmatched_a, initial.unmatched_b)
         return MatchResult(
@@ -215,8 +223,18 @@ class TextDiffer:
 
 class DiffEngine:
     @staticmethod
+    def _is_sdlxliff(doc_a: ParsedDocument, doc_b: ParsedDocument) -> bool:
+        return (
+            (doc_a.format_name or "").upper() == "SDLXLIFF"
+            and (doc_b.format_name or "").upper() == "SDLXLIFF"
+        )
+
+    @staticmethod
     def compare(doc_a: ParsedDocument, doc_b: ParsedDocument) -> ComparisonResult:
-        match_result = SegmentMatcher.match(doc_a, doc_b)
+        strict_id_mode = DiffEngine._is_sdlxliff(doc_a, doc_b)
+        match_result = SegmentMatcher.match(
+            doc_a, doc_b, allow_fuzzy=not strict_id_mode
+        )
         changes: list[ChangeRecord] = []
 
         for seg_a, seg_b in match_result.pairs:
@@ -235,8 +253,12 @@ class DiffEngine:
 
             similarity = SequenceMatcher(None, seg_a.target, seg_b.target).ratio()
             text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target)
-            keep_as_modified = similarity >= SIMILARITY_THRESHOLD or TextDiffer.has_only_non_word_or_case_changes(
-                seg_a.target, seg_b.target
+            keep_as_modified = (
+                strict_id_mode
+                or similarity >= SIMILARITY_THRESHOLD
+                or TextDiffer.has_only_non_word_or_case_changes(
+                    seg_a.target, seg_b.target
+                )
             )
             if keep_as_modified:
                 changes.append(

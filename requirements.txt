@@ -1,1 +1,11 @@
 pywin32
+python-docx
+python-pptx
+openpyxl
+xlrd
+lxml
+Jinja2
+XlsxWriter
+diff-match-patch
+chardet
+PyQt6

@@ -20,7 +20,7 @@
 
 ### Формат вывода
 
-- **DOCX** → результат в режиме Track Changes (через C# модуль)
+- **DOCX** → результат в режиме Track Changes (через win32com (Microsoft Word COM))
 - **Все остальные** → HTML-отчёт (интерактивный, в браузере) + Excel с rich text
 
 ### Способы запуска
@@ -70,7 +70,7 @@
                        │
                        ▼ (только для DOCX)
               ┌─────────────────┐
-              │  C# .exe модуль │
+              │  win32com модуль │
               │  (Track Changes)│
               └─────────────────┘
 ```
@@ -334,8 +334,7 @@ BaseReporter (ABC)
 │   ├── лист со статистикой
 │   └── условное форматирование по типу изменения
 │
-├── DocxTrackChangesReporter               # обёртка над C# .exe
-│   ├── вызов subprocess → docx_compare.exe
+├── DocxTrackChangesReporter               # обёртка над win32com (Microsoft Word COM)
 │   ├── передача: file_a, file_b, output_path
 │   ├── проверка наличия .exe при инициализации
 │   └── fallback: ошибка с понятным сообщением
@@ -420,39 +419,6 @@ GUI вызывает `Orchestrator` в отдельном `QThread`, чтобы 
 
 ---
 
-## 9. C# модуль (docx_compare.exe)
-
-### 9.1 Интерфейс
-
-```
-docx_compare.exe <file_a> <file_b> <output> [--author "Change Tracker"]
-```
-
-Exit codes: 0 = success, 1 = error (stderr содержит описание).
-
-### 9.2 Реализация
-
-- .NET 8, консольное приложение
-- Open XML SDK для генерации Track Changes
-- Публикация: `dotnet publish -r win-x64 --self-contained -p:PublishSingleFile=true`
-- Результат: один .exe файл ~30-60 MB, не требует .NET runtime на машине пользователя
-
-### 9.3 Алгоритм
-
-1. Читает оба DOCX через Open XML SDK
-2. Извлекает параграфы с форматированием
-3. Сопоставляет параграфы (по позиции + fuzzy)
-4. Для изменённых параграфов — генерирует `<w:ins>` / `<w:del>` разметку
-5. Сохраняет результат как DOCX с Track Changes
-
-### 9.4 Альтернативный путь
-
-Если C# модуль недоступен, `DocxTrackChangesReporter` может:
-- Проверить наличие MS Word → использовать `win32com` для `Document.Compare()`
-- Если Word тоже нет → fallback на HTML+Excel отчёт для DOCX (с предупреждением)
-
----
-
 ## 10. Структура проекта
 
 ```
@@ -488,7 +454,7 @@ change-tracker/
 │   ├── base.py                            # BaseReporter (ABC)
 │   ├── html_reporter.py                   # Jinja2 + CSS
 │   ├── excel_reporter.py                  # XlsxWriter
-│   ├── docx_reporter.py                   # обёртка C# .exe
+│   ├── docx_reporter.py                   # обёртка win32com
 │   └── templates/
 │       ├── report.html.j2                 # Jinja2 шаблон
 │       └── styles.css                     # встроится в HTML
@@ -502,7 +468,6 @@ change-tracker/
 │       └── icons/
 │
 ├── tools/
-│   └── docx_compare.exe                   # скомпилированный C# модуль
 │
 ├── tests/
 │   ├── test_models.py
@@ -548,7 +513,7 @@ diff-match-patch>=20230430  # посимвольный diff
 PyInstaller>=5.0       # сборка .exe
 ```
 
-### C# (NuGet)
+### win32com (pywin32)
 
 ```
 DocumentFormat.OpenXml  # Open XML SDK
@@ -587,7 +552,6 @@ DocumentFormat.OpenXml  # Open XML SDK
 **Milestone: все форматы + HTML + Excel отчёты**
 
 ### Фаза 5: DOCX Track Changes
-17. C# модуль `docx_compare.exe`
 18. `reporters/docx_reporter.py` (обёртка)
 
 ### Фаза 6: Батч и мульти-версия
@@ -602,7 +566,7 @@ DocumentFormat.OpenXml  # Open XML SDK
 
 ### Фаза 8: Упаковка и polish
 25. PyInstaller сборка
-26. Включение C# .exe в бандл
+26. Включение win32com в бандл
 27. Иконки, about dialog
 28. Обработка edge cases, логирование
 
@@ -616,6 +580,6 @@ DocumentFormat.OpenXml  # Open XML SDK
 
 **Расширяемость через плагины.** Новый формат = новый файл в папке. Новый тип отчёта = новый файл в папке. Ноль изменений в существующем коде.
 
-**Fail gracefully.** Если парсер не может обработать файл — понятное сообщение об ошибке, а не крэш. Если C# модуль недоступен — fallback на HTML+Excel.
+**Fail gracefully.** Если парсер не может обработать файл — понятное сообщение об ошибке, а не крэш. Если Microsoft Word недоступен — fallback на HTML+Excel.
 
 **Тесты на каждом уровне.** Фикстуры реальных файлов каждого формата. Тесты парсеров, diff-движка и генераторов независимо друг от друга.

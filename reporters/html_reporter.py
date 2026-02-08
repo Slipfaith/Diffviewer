@@ -36,7 +36,7 @@ class HtmlReporter(BaseReporter):
                 {
                     "index": index,
                     "segment_id": segment_id,
-                    "source": source or "",
+                    "source": self._escape(source or ""),
                     "old_target": self._render_old_target(change),
                     "new_target": self._render_new_target(change),
                     "change_type": change.type.value.lower(),
@@ -44,7 +44,7 @@ class HtmlReporter(BaseReporter):
                 }
             )
 
-        html = template.render(
+        html_content = template.render(
             styles=styles,
             file_a_name=Path(result.file_a.file_path).name,
             file_b_name=Path(result.file_b.file_path).name,
@@ -55,7 +55,7 @@ class HtmlReporter(BaseReporter):
         )
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text(html, encoding="utf-8")
+        output_file.write_text(html_content, encoding="utf-8")
         return str(output_file)
 
     def _format_timestamp(self, timestamp: datetime) -> str:
@@ -106,7 +106,7 @@ class HtmlReporter(BaseReporter):
             text = self._escape(chunk.text)
             if chunk.type == ChunkType.EQUAL:
                 parts.append(text)
-            elif chunk.type == ChunkType.DELETE and side in {"old", "new"}:
+            elif chunk.type == ChunkType.DELETE and side == "old":
                 parts.append(self._wrap_delete(chunk.text))
             elif chunk.type == ChunkType.INSERT and side == "new":
                 parts.append(self._wrap_insert(chunk.text))

@@ -10,11 +10,11 @@ from parsers.base import BaseParser
 
 class DocxParser(BaseParser):
     name = "DOCX Parser"
-    supported_extensions = [".docx", ".doc"]
+    supported_extensions = [".docx"]
     format_description = "Word Document"
 
     def can_handle(self, filepath: str) -> bool:
-        return Path(filepath).suffix.lower() in self.supported_extensions
+        return Path(filepath).suffix.lower() == ".docx"
 
     def parse(self, filepath: str) -> ParsedDocument:
         ext = Path(filepath).suffix.lower()
@@ -27,14 +27,16 @@ class DocxParser(BaseParser):
             raise ParseError(filepath, str(exc)) from exc
 
         segments: list[Segment] = []
-        for index, paragraph in enumerate(document.paragraphs, start=1):
-            text = paragraph.text
+        content_index = 0
+        for paragraph in document.paragraphs:
+            text = self._extract_paragraph_text(paragraph)
             if not text or text.strip() == "":
                 continue
-            segment_id = f"para_{index}"
+            content_index += 1
+            segment_id = f"para_{content_index}"
             context = SegmentContext(
                 file_path=filepath,
-                location=f"Paragraph {index}",
+                location=f"Paragraph {content_index}",
                 position=len(segments) + 1,
                 group=None,
             )
@@ -56,6 +58,21 @@ class DocxParser(BaseParser):
             metadata={},
             encoding=None,
         )
+
+    @staticmethod
+    def _extract_paragraph_text(paragraph) -> str:
+        word_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        text_parts: list[str] = []
+        for elem in paragraph._element.iter():
+            if elem.tag == f"{{{word_ns}}}t":
+                text_parts.append(elem.text or "")
+            elif elem.tag == f"{{{word_ns}}}tab":
+                text_parts.append("\t")
+            elif elem.tag == f"{{{word_ns}}}br":
+                text_parts.append("\n")
+            elif elem.tag == f"{{{word_ns}}}cr":
+                text_parts.append("\n")
+        return "".join(text_parts)
 
     def validate(self, filepath: str) -> list[str]:
         errors: list[str] = []

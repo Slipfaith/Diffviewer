@@ -16,15 +16,33 @@ def test_docx_parse_fixture() -> None:
     assert "style" in doc.segments[0].metadata
 
 
+def test_docx_preserves_whitespace_tokens() -> None:
+    parser = DocxParser()
+    doc = parser.parse(str(FIXTURES / "sample_whitespace.docx"))
+    assert any(segment.target == "Alpha  Beta\tGamma" for segment in doc.segments)
+    assert any(segment.target.endswith("  ") for segment in doc.segments)
+
+
 def test_docx_can_handle() -> None:
     parser = DocxParser()
     assert parser.can_handle("file.docx") is True
-    assert parser.can_handle("file.doc") is True
+    assert parser.can_handle("file.doc") is False
 
 
-def test_doc_parser_doc_not_implemented(tmp_path: Path) -> None:
-    fake_doc = tmp_path / "sample.doc"
-    fake_doc.write_text("dummy", encoding="utf-8")
+def test_doc_not_in_supported_extensions() -> None:
     parser = DocxParser()
-    with pytest.raises(NotImplementedError):
-        parser.parse(str(fake_doc))
+    assert ".doc" not in parser.supported_extensions
+    assert ".docx" in parser.supported_extensions
+
+
+def test_docx_sequential_segment_ids() -> None:
+    parser = DocxParser()
+    doc = parser.parse(str(FIXTURES / "sample_a.docx"))
+    for i, segment in enumerate(doc.segments, start=1):
+        assert segment.id == f"para_{i}", f"Expected para_{i}, got {segment.id}"
+
+
+def test_doc_validate_returns_error() -> None:
+    parser = DocxParser()
+    errors = parser.validate("sample.doc")
+    assert any("DOC format" in e for e in errors)

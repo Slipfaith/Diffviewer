@@ -53,9 +53,16 @@ def cmd_compare(args: argparse.Namespace) -> int:
     print(f"Comparing: {args.file_a} vs {args.file_b}")
     try:
         outputs = orchestrator.compare_files(args.file_a, args.file_b, args.output)
-    except (ParseError, UnsupportedFormatError) as exc:
+    except (ParseError, UnsupportedFormatError, RuntimeError) as exc:
         print(f"Error: {exc}")
         return 1
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    if Path(args.file_a).suffix.lower() == ".docx":
+        if not any(Path(output).suffix.lower() == ".docx" for output in outputs):
+            print("Microsoft Word not found, generating HTML+Excel reports only")
 
     result = orchestrator.last_result
     if result is not None:
@@ -72,7 +79,15 @@ def cmd_compare(args: argparse.Namespace) -> int:
             )
         )
     for output in outputs:
-        print(f"Report: {output}")
+        suffix = Path(output).suffix.lower()
+        if suffix == ".html":
+            print(f"HTML report: {output}")
+        elif suffix == ".xlsx":
+            print(f"Excel report: {output}")
+        elif suffix == ".docx":
+            print(f"Track Changes report: {output}")
+        else:
+            print(f"Report: {output}")
     return 0
 
 
@@ -83,7 +98,11 @@ def cmd_batch(args: argparse.Namespace) -> int:
 
     orchestrator = Orchestrator(on_progress=on_progress)
     print(f"Batch comparing: {args.folder_a} vs {args.folder_b}")
-    result = orchestrator.compare_folders(args.folder_a, args.folder_b, args.output)
+    try:
+        result = orchestrator.compare_folders(args.folder_a, args.folder_b, args.output)
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
     print(
         "Summary: total={total} compared={compared} only_in_a={only_a} only_in_b={only_b} errors={errors}".format(
             total=result.total_files,
@@ -94,18 +113,29 @@ def cmd_batch(args: argparse.Namespace) -> int:
         )
     )
     if result.summary_report_path:
-        print(f"Summary report: {result.summary_report_path}")
+        print(f"Summary HTML: {result.summary_report_path}")
+    if result.summary_excel_path:
+        print(f"Summary Excel: {result.summary_excel_path}")
     return 0
 
 
 def cmd_versions(args: argparse.Namespace) -> int:
-    orchestrator = Orchestrator()
+    def on_progress(message: str, value: float) -> None:
+        percent = int(value * 100)
+        print(f"{message} ({percent}%)")
+
+    orchestrator = Orchestrator(on_progress=on_progress)
     print("Comparing versions:")
     for path in args.files:
         print(f"  {path}")
-    result = orchestrator.compare_versions(args.files, args.output)
+    try:
+        result = orchestrator.compare_versions(args.files, args.output)
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+    print(f"Comparisons generated: {len(result.comparisons)}")
     if result.summary_report_path:
-        print(f"Summary report: {result.summary_report_path}")
+        print(f"Summary HTML: {result.summary_report_path}")
     return 0
 
 

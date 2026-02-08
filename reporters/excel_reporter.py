@@ -58,7 +58,14 @@ class ExcelReporter(BaseReporter):
             output_file = output_file.with_suffix(self.output_extension)
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        workbook = xlsxwriter.Workbook(str(output_file))
+        workbook = xlsxwriter.Workbook(
+            str(output_file),
+            {
+                "strings_to_formulas": False,
+                "strings_to_numbers": False,
+                "strings_to_urls": False,
+            },
+        )
         try:
             report_ws = workbook.add_worksheet("Report")
             stats_ws = workbook.add_worksheet("Statistics")
@@ -92,36 +99,76 @@ class ExcelReporter(BaseReporter):
             }
             delete_cell_formats = {
                 ChangeType.ADDED: workbook.add_format(
-                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                    {
+                        "bg_color": "#ecfdf3",
+                        "text_wrap": True,
+                        "font_color": "#b91c1c",
+                        "font_strikeout": True,
+                    }
                 ),
                 ChangeType.DELETED: workbook.add_format(
-                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                    {
+                        "bg_color": "#fef2f2",
+                        "text_wrap": True,
+                        "font_color": "#b91c1c",
+                        "font_strikeout": True,
+                    }
                 ),
                 ChangeType.MODIFIED: workbook.add_format(
-                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                    {
+                        "bg_color": "#fffbeb",
+                        "text_wrap": True,
+                        "font_color": "#b91c1c",
+                        "font_strikeout": True,
+                    }
                 ),
                 ChangeType.UNCHANGED: workbook.add_format(
                     {"text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
                 ),
                 ChangeType.MOVED: workbook.add_format(
-                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                    {
+                        "bg_color": "#eef2ff",
+                        "text_wrap": True,
+                        "font_color": "#b91c1c",
+                        "font_strikeout": True,
+                    }
                 ),
             }
             insert_cell_formats = {
                 ChangeType.ADDED: workbook.add_format(
-                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                    {
+                        "bg_color": "#ecfdf3",
+                        "text_wrap": True,
+                        "font_color": "#15803d",
+                        "underline": True,
+                    }
                 ),
                 ChangeType.DELETED: workbook.add_format(
-                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                    {
+                        "bg_color": "#fef2f2",
+                        "text_wrap": True,
+                        "font_color": "#15803d",
+                        "underline": True,
+                    }
                 ),
                 ChangeType.MODIFIED: workbook.add_format(
-                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                    {
+                        "bg_color": "#fffbeb",
+                        "text_wrap": True,
+                        "font_color": "#15803d",
+                        "underline": True,
+                    }
                 ),
                 ChangeType.UNCHANGED: workbook.add_format(
                     {"text_wrap": True, "font_color": "#15803d", "underline": True}
                 ),
                 ChangeType.MOVED: workbook.add_format(
-                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                    {
+                        "bg_color": "#eef2ff",
+                        "text_wrap": True,
+                        "font_color": "#15803d",
+                        "underline": True,
+                    }
                 ),
             }
 
@@ -156,11 +203,13 @@ class ExcelReporter(BaseReporter):
                     for chunk in change.get("text_diff", [])
                 ]
 
-                report_ws.write(row, 0, index, row_format)
-                report_ws.write(row, 1, segment_id, row_format)
-                report_ws.write(row, 2, source, row_format)
+                report_ws.write_number(row, 0, index, row_format)
+                self._write_text(report_ws, row, 1, segment_id, row_format)
+                self._write_text(report_ws, row, 2, source, row_format)
 
                 if change_type == ChangeType.MODIFIED:
+                    old_target = before.get("target") if before else ""
+                    new_target = after.get("target") if after else ""
                     self._write_rich(
                         report_ws,
                         row,
@@ -169,7 +218,7 @@ class ExcelReporter(BaseReporter):
                         row_format,
                         diff_formats,
                         side="old",
-                        fallback=before.get("target", ""),
+                        fallback=old_target,
                     )
                     self._write_rich(
                         report_ws,
@@ -179,29 +228,31 @@ class ExcelReporter(BaseReporter):
                         row_format,
                         diff_formats,
                         side="new",
-                        fallback=after.get("target", ""),
+                        fallback=new_target,
                     )
                 elif change_type == ChangeType.ADDED:
-                    report_ws.write(row, 3, "", row_format)
-                    report_ws.write(
+                    self._write_text(report_ws, row, 3, "", row_format)
+                    self._write_text(
+                        report_ws,
                         row,
                         4,
                         after.get("target", ""),
                         insert_cell_formats[change_type],
                     )
                 elif change_type == ChangeType.DELETED:
-                    report_ws.write(
+                    self._write_text(
+                        report_ws,
                         row,
                         3,
                         before.get("target", ""),
                         delete_cell_formats[change_type],
                     )
-                    report_ws.write(row, 4, "", row_format)
+                    self._write_text(report_ws, row, 4, "", row_format)
                 else:
-                    report_ws.write(row, 3, before.get("target", ""), row_format)
-                    report_ws.write(row, 4, after.get("target", ""), row_format)
+                    self._write_text(report_ws, row, 3, before.get("target", ""), row_format)
+                    self._write_text(report_ws, row, 4, after.get("target", ""), row_format)
 
-                report_ws.write(row, 5, change_type.value, row_format)
+                self._write_text(report_ws, row, 5, change_type.value, row_format)
                 if change_type == ChangeType.UNCHANGED:
                     report_ws.set_row(row, None, None, {"hidden": True})
 
@@ -287,7 +338,7 @@ class ExcelReporter(BaseReporter):
                 fragments.append("".join(text_buffer))
                 text_buffer.clear()
 
-            if chunk.type == ChunkType.DELETE and side in {"old", "new"}:
+            if chunk.type == ChunkType.DELETE and side == "old":
                 fragments.append(diff_formats[ChunkType.DELETE])
                 fragments.append(chunk.text)
             elif chunk.type == ChunkType.INSERT and side == "new":
@@ -299,16 +350,25 @@ class ExcelReporter(BaseReporter):
 
         plain_text = self._plain_text(diffs, side)
         if not plain_text:
-            plain_text = fallback
+            plain_text = fallback if fallback is not None else ""
+        plain_text = str(plain_text)
+
         string_fragments = [item for item in fragments if isinstance(item, str)]
         if len(string_fragments) < 2:
-            worksheet.write(row, col, plain_text, cell_format)
+            self._write_text(worksheet, row, col, plain_text, cell_format)
             return
 
         try:
-            worksheet.write_rich_string(row, col, *fragments, cell_format)
+            result = worksheet.write_rich_string(row, col, *fragments, cell_format)
+            if result != 0:
+                self._write_text(worksheet, row, col, plain_text, cell_format)
         except Exception:
-            worksheet.write(row, col, plain_text, cell_format)
+            self._write_text(worksheet, row, col, plain_text, cell_format)
+
+    @staticmethod
+    def _write_text(worksheet, row: int, col: int, value: object, cell_format) -> None:
+        text = "" if value is None else str(value)
+        worksheet.write_string(row, col, text, cell_format)
 
     @staticmethod
     def _plain_text(diffs: list[DiffChunk], side: str) -> str:
@@ -317,8 +377,6 @@ class ExcelReporter(BaseReporter):
             if chunk.type == ChunkType.EQUAL:
                 parts.append(chunk.text)
             elif chunk.type == ChunkType.DELETE and side == "old":
-                parts.append(chunk.text)
-            elif chunk.type == ChunkType.DELETE and side == "new":
                 parts.append(chunk.text)
             elif chunk.type == ChunkType.INSERT and side == "new":
                 parts.append(chunk.text)

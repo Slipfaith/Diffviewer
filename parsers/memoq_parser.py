@@ -3,20 +3,7 @@ from __future__ import annotations
 from lxml import etree
 
 from core.models import ParsedDocument, ParseError, Segment, SegmentContext
-from parsers.xliff_base import BaseXliffParser
-
-
-def _local_name(name: str) -> str:
-    if "}" in name:
-        return name.split("}", 1)[1]
-    return name
-
-
-def _first_child_text(element: etree._Element, name: str) -> str | None:
-    matches = element.xpath(f".//*[local-name()='{name}']")
-    if not matches:
-        return None
-    return "".join(matches[0].itertext())
+from parsers.xliff_base import BaseXliffParser, _first_child_text, _local_name
 
 
 class MemoQXliffParser(BaseXliffParser):

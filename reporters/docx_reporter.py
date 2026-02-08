@@ -36,7 +36,6 @@ class DocxTrackChangesReporter(BaseReporter):
         try:
             pythoncom.CoInitialize()
             word = self._start_word()
-            word.Quit()
             return True
         except Exception:
             return False
@@ -51,7 +50,7 @@ class DocxTrackChangesReporter(BaseReporter):
         if output_file.suffix.lower() != self.output_extension:
             output_file = output_file.with_suffix(self.output_extension)
 
-        if not self.is_available():
+        if win32com is None or pythoncom is None:
             logger.warning(
                 "Microsoft Word not found, falling back to HTML report"
             )
@@ -97,8 +96,10 @@ class DocxTrackChangesReporter(BaseReporter):
             result_doc = word.ActiveDocument
             result_doc.SaveAs2(abs_output, FileFormat=12)
         except Exception as exc:
-            logger.error("Word automation failed: %s", exc)
-            raise RuntimeError(f"Word automation failed: {exc}") from exc
+            logger.warning("Word automation failed: %s — falling back to HTML report", exc)
+            html_path = output_file.with_suffix(".html")
+            HtmlReporter().generate(result, str(html_path))
+            return str(html_path)
         finally:
             self._safe_close(result_doc)
             self._safe_close(doc_b)
