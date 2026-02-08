@@ -45,3 +45,22 @@ def test_pptx_table_extraction(tmp_path: Path) -> None:
     assert "Value 1" in targets
     assert "Value 2" in targets
     assert any("_tbl_" in seg.id for seg in doc.segments)
+
+
+def test_pptx_notes_extraction(tmp_path: Path) -> None:
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[5])  # blank layout
+    notes_frame = slide.notes_slide.notes_text_frame
+    notes_frame.clear()
+    notes_frame.text = "Speaker note line 1"
+    notes_frame.add_paragraph().text = "Speaker note line 2"
+
+    filepath = tmp_path / "notes_test.pptx"
+    prs.save(str(filepath))
+
+    parser = PptxParser()
+    doc = parser.parse(str(filepath))
+    targets = [seg.target for seg in doc.segments]
+    assert "Speaker note line 1" in targets
+    assert "Speaker note line 2" in targets
+    assert any("_notes_" in seg.id for seg in doc.segments)
