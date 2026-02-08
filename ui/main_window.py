@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 import os
 from pathlib import Path
+import subprocess
+import sys
+import webbrowser
 
 from PyQt6.QtCore import QEvent, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -31,6 +34,39 @@ from core.models import UnsupportedFormatError
 from core.registry import ParserRegistry
 from ui.comparison_worker import ComparisonWorker
 from ui.file_tile_drop_zone import FileTileDropZone, TileVisualState
+
+
+def _resolve_app_icon() -> QIcon | None:
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(str(meipass)) / "Diffviewer.ico")
+        candidates.append(Path(sys.executable).resolve().parent / "Diffviewer.ico")
+    candidates.append(Path(__file__).resolve().parents[1] / "Diffviewer.ico")
+
+    for icon_path in candidates:
+        try:
+            if not icon_path.exists():
+                continue
+            icon = QIcon(str(icon_path))
+            if not icon.isNull():
+                return icon
+        except Exception:
+            continue
+    return None
+
+
+def _set_windows_app_id() -> None:
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+
+        app_id = "Diffviewer.ChangeTracker"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
 
 
 class VersionFileListWidget(QListWidget):
@@ -635,17 +671,28 @@ class MainWindow(QMainWindow):
             )
             return
 
+        if report_path.suffix.lower() in {".html", ".htm"}:
+            try:
+                if webbrowser.open_new_tab(report_path.as_uri()):
+                    return
+            except Exception:
+                pass
+
         if QDesktopServices.openUrl(QUrl.fromLocalFile(str(report_path))):
             return
 
         try:
             os.startfile(str(report_path))  # type: ignore[attr-defined]
         except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "Open failed",
-                f"Cannot open report:\n{report_path}\n\n{exc}",
-            )
+            try:
+                subprocess.Popen(["explorer", str(report_path)])
+                return
+            except Exception:
+                QMessageBox.warning(
+                    self,
+                    "Open failed",
+                    f"Cannot open report:\n{report_path}\n\n{exc}",
+                )
 
     def _update_action_state(self) -> None:
         output_ok = bool(self.output_line.text().strip())
@@ -742,7 +789,13 @@ QProgressBar::chunk {
 
 
 def run_gui() -> None:
+    _set_windows_app_id()
     app = QApplication.instance() or QApplication([])
+    icon = _resolve_app_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
     window = MainWindow()
+    if icon is not None:
+        window.setWindowIcon(icon)
     window.show()
     app.exec()
