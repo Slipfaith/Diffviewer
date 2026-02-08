@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 
+APP_VERSION = "1.0"
+
 
 def main() -> None:
     if len(sys.argv) <= 1:

@@ -81,6 +81,14 @@ def _set_windows_app_id() -> None:
         pass
 
 
+def _resolve_app_version() -> str:
+    main_module = sys.modules.get("__main__")
+    raw_version = getattr(main_module, "APP_VERSION", None)
+    if isinstance(raw_version, str) and raw_version.strip():
+        return raw_version.strip()
+    return "1.0"
+
+
 class VersionFileListWidget(QListWidget):
     files_dropped = pyqtSignal(list)
 
@@ -181,11 +189,37 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self._build_mode_stack())
         root_layout.addWidget(self._build_bottom_panel())
 
+        self._build_top_menu()
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("Ready")
 
         self._set_mode(self.MODE_FILE)
         self._update_action_state()
+
+    def _build_top_menu(self) -> None:
+        menu_bar = self.menuBar()
+        help_action = menu_bar.addAction("Справка")
+        about_action = menu_bar.addAction("О программе")
+        help_action.triggered.connect(self._show_help_dialog)
+        about_action.triggered.connect(self._show_about_dialog)
+
+    def _show_help_dialog(self) -> None:
+        text = (
+            "Diff View помогает сравнивать файлы и проверять изменения переводов.\n\n"
+            "Основные возможности:\n"
+            "1. File vs File: сравнение пар файлов с отчетами HTML/XLSX.\n"
+            "2. Multi-Version: сводное сравнение нескольких версий файла.\n"
+            "3. QA Verify: проверка применения QA-правок TP/FP.\n\n"
+            "from Sha by slipfaith."
+        )
+        QMessageBox.information(self, "Справка", text)
+
+    def _show_about_dialog(self) -> None:
+        QMessageBox.information(
+            self,
+            "О программе",
+            f"Diff View\nВерсия: {_resolve_app_version()}",
+        )
 
     def _build_mode_selector(self) -> QHBoxLayout:
         layout = QHBoxLayout()

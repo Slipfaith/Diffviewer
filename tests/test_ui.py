@@ -78,6 +78,14 @@ def test_main_window_excel_column_validation() -> None:
         MainWindow._normalize_excel_column_input("A-1")
 
 
+def test_main_window_has_help_and_about_menu(app: QApplication) -> None:
+    window = MainWindow()
+    top_actions = [action.text() for action in window.menuBar().actions()]
+    assert "Справка" in top_actions
+    assert "О программе" in top_actions
+    window.close()
+
+
 def test_excel_source_row_visibility_for_excel_files(app: QApplication) -> None:
     window = MainWindow()
     assert window.excel_source_options_widget.isHidden() is True
