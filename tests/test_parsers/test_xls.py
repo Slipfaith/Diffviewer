@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from parsers.xls_parser import XlsParser
 
 
@@ -20,3 +22,9 @@ def test_xls_can_handle() -> None:
     parser = XlsParser()
     assert parser.can_handle("file.xls") is True
     assert parser.can_handle("file.xlsx") is False
+
+
+def test_xls_rejects_invalid_source_column() -> None:
+    parser = XlsParser()
+    with pytest.raises(ValueError):
+        parser.set_source_column("A-1")

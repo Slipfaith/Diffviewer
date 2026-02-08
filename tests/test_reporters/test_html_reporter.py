@@ -17,14 +17,14 @@ from core.models import (
 from reporters.html_reporter import HtmlReporter
 
 
-def make_segment(segment_id: str, target: str) -> Segment:
+def make_segment(segment_id: str, target: str, source: str | None = None) -> Segment:
     context = SegmentContext(
         file_path="file.txt",
         location=segment_id,
         position=int(segment_id),
         group=None,
     )
-    return Segment(id=segment_id, source=None, target=target, context=context)
+    return Segment(id=segment_id, source=source, target=target, context=context)
 
 
 def make_doc(name: str, segments: list[Segment]) -> ParsedDocument:
@@ -108,7 +108,7 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
     assert "table-layout: fixed;" in output_content
     assert "word-break: break-word;" in output_content
     assert "overflow-wrap: anywhere;" in output_content
-    assert 'class="col-source"' in output_content
+    assert 'class="col-source"' not in output_content
     assert 'class="col-old-target"' in output_content
     assert 'class="col-new-target"' in output_content
 
@@ -125,6 +125,37 @@ def test_html_reporter_empty_result(tmp_path: Path) -> None:
     reporter = HtmlReporter()
     output_file = reporter.generate(result, str(tmp_path / "empty.html"))
     assert Path(output_file).exists()
+
+
+def test_html_reporter_shows_source_column_when_available(tmp_path: Path) -> None:
+    seg_before = make_segment("1", "Hola", source="Hello")
+    seg_after = make_segment("1", "Privet", source="Hello")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.DELETE, text="Hola"),
+                DiffChunk(type=ChunkType.INSERT, text="Privet"),
+            ],
+            similarity=0.0,
+            context=seg_after.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.xliff", [seg_before]),
+        file_b=make_doc("b.xliff", [seg_after]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(reporter.generate(result, str(tmp_path / "with_source.html")))
+    output_content = output_path.read_text(encoding="utf-8")
+    assert 'class="col-source"' in output_content
+    assert ">Source<" in output_content
 
 
 def test_html_reporter_bidirectional_inline_diff_rules() -> None:

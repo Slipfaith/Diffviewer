@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +11,8 @@ from PyQt6.QtWidgets import QApplication
 from ui.comparison_worker import ComparisonWorker
 from ui.file_drop_zone import FileDropZone
 from ui.main_window import MainWindow
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture(scope="session")
@@ -64,4 +67,24 @@ def test_main_window_mode_switching(app: QApplication) -> None:
     window._set_mode(window.MODE_QA_VERIFY)
     assert window.current_mode == window.MODE_QA_VERIFY
     assert window.compare_btn.text() == "Verify QA"
+    window.close()
+
+
+def test_main_window_excel_column_validation() -> None:
+    assert MainWindow._normalize_excel_column_input(" a ") == "A"
+    assert MainWindow._normalize_excel_column_input("12") == "12"
+    assert MainWindow._normalize_excel_column_input("") is None
+    with pytest.raises(ValueError):
+        MainWindow._normalize_excel_column_input("A-1")
+
+
+def test_excel_source_row_visibility_for_excel_files(app: QApplication) -> None:
+    window = MainWindow()
+    assert window.excel_source_options_widget.isHidden() is True
+
+    window.file_a_zone.add_files([str(FIXTURES / "sample_a.xlsx")])
+    assert window.excel_source_options_widget.isHidden() is False
+
+    window.file_a_zone.clear_files()
+    assert window.excel_source_options_widget.isHidden() is True
     window.close()

@@ -172,17 +172,40 @@ class ExcelReporter(BaseReporter):
                 ),
             }
 
-            headers = ["#", "Segment ID", "Source", "Old Target", "New Target", "Type"]
+            show_source = self._should_show_source(data)
+            headers = ["#", "Segment ID"]
+            if show_source:
+                headers.append("Source")
+            headers.extend(["Old Target", "New Target", "Type"])
             report_ws.write_row(0, 0, headers, header_format)
-            report_ws.set_column(0, 0, 6)
-            report_ws.set_column(1, 1, 15)
-            report_ws.set_column(2, 2, 30)
-            report_ws.set_column(3, 4, 45)
-            report_ws.set_column(5, 5, 12)
+            col_index = 0
+            col_segment = 1
+            if show_source:
+                col_source: int | None = 2
+                col_old = 3
+                col_new = 4
+                col_type = 5
+                report_ws.set_column(0, 0, 6)
+                report_ws.set_column(1, 1, 15)
+                report_ws.set_column(2, 2, 30)
+                report_ws.set_column(3, 4, 45)
+                report_ws.set_column(5, 5, 12)
+            else:
+                col_source = None
+                col_old = 2
+                col_new = 3
+                col_type = 4
+                report_ws.set_column(0, 0, 6)
+                report_ws.set_column(1, 1, 15)
+                report_ws.set_column(2, 3, 45)
+                report_ws.set_column(4, 4, 12)
             report_ws.freeze_panes(1, 0)
             end_row = max(0, len(data.get("changes", [])))
-            report_ws.autofilter(0, 0, end_row, 5)
-            report_ws.filter_column_list(5, ["ADDED", "DELETED", "MODIFIED", "MOVED"])
+            report_ws.autofilter(0, 0, end_row, col_type)
+            report_ws.filter_column_list(
+                col_type,
+                ["ADDED", "DELETED", "MODIFIED", "MOVED"],
+            )
 
             for index, change in enumerate(data.get("changes", []), start=1):
                 row = index
@@ -203,9 +226,10 @@ class ExcelReporter(BaseReporter):
                     for chunk in change.get("text_diff", [])
                 ]
 
-                report_ws.write_number(row, 0, index, row_format)
-                self._write_text(report_ws, row, 1, segment_id, row_format)
-                self._write_text(report_ws, row, 2, source, row_format)
+                report_ws.write_number(row, col_index, index, row_format)
+                self._write_text(report_ws, row, col_segment, segment_id, row_format)
+                if col_source is not None:
+                    self._write_text(report_ws, row, col_source, source, row_format)
 
                 if change_type == ChangeType.MODIFIED:
                     old_target = before.get("target") if before else ""
@@ -213,7 +237,7 @@ class ExcelReporter(BaseReporter):
                     self._write_rich(
                         report_ws,
                         row,
-                        3,
+                        col_old,
                         text_diff,
                         row_format,
                         diff_formats,
@@ -223,7 +247,7 @@ class ExcelReporter(BaseReporter):
                     self._write_rich(
                         report_ws,
                         row,
-                        4,
+                        col_new,
                         text_diff,
                         row_format,
                         diff_formats,
@@ -231,11 +255,11 @@ class ExcelReporter(BaseReporter):
                         fallback=new_target,
                     )
                 elif change_type == ChangeType.ADDED:
-                    self._write_text(report_ws, row, 3, "", row_format)
+                    self._write_text(report_ws, row, col_old, "", row_format)
                     self._write_text(
                         report_ws,
                         row,
-                        4,
+                        col_new,
                         after.get("target", ""),
                         insert_cell_formats[change_type],
                     )
@@ -243,16 +267,28 @@ class ExcelReporter(BaseReporter):
                     self._write_text(
                         report_ws,
                         row,
-                        3,
+                        col_old,
                         before.get("target", ""),
                         delete_cell_formats[change_type],
                     )
-                    self._write_text(report_ws, row, 4, "", row_format)
+                    self._write_text(report_ws, row, col_new, "", row_format)
                 else:
-                    self._write_text(report_ws, row, 3, before.get("target", ""), row_format)
-                    self._write_text(report_ws, row, 4, after.get("target", ""), row_format)
+                    self._write_text(
+                        report_ws,
+                        row,
+                        col_old,
+                        before.get("target", ""),
+                        row_format,
+                    )
+                    self._write_text(
+                        report_ws,
+                        row,
+                        col_new,
+                        after.get("target", ""),
+                        row_format,
+                    )
 
-                self._write_text(report_ws, row, 5, change_type.value, row_format)
+                self._write_text(report_ws, row, col_type, change_type.value, row_format)
                 if change_type == ChangeType.UNCHANGED:
                     report_ws.set_row(row, None, None, {"hidden": True})
 
@@ -315,6 +351,16 @@ class ExcelReporter(BaseReporter):
             return ChunkType[value]
         except KeyError as exc:
             raise ValueError(f"Unsupported chunk type: {raw_value}") from exc
+
+    @staticmethod
+    def _should_show_source(data: dict) -> bool:
+        for change in data.get("changes", []):
+            before = change.get("segment_before") or {}
+            after = change.get("segment_after") or {}
+            source = after.get("source") or before.get("source") or ""
+            if str(source).strip():
+                return True
+        return False
 
     def _write_rich(
         self,

@@ -27,12 +27,15 @@ class HtmlReporter(BaseReporter):
         template = Template(template_path.read_text(encoding="utf-8"))
         styles = styles_path.read_text(encoding="utf-8")
 
+        show_source = any(
+            bool(self._source_text(change).strip()) for change in result.changes
+        )
         rows = []
         for index, change in enumerate(result.changes, start=1):
             before = change.segment_before
             after = change.segment_after
             segment_id = after.id if after is not None else before.id if before is not None else ""
-            source = after.source if after is not None else before.source if before is not None else ""
+            source = self._source_text(change)
             is_changed = change.type != ChangeType.UNCHANGED
             rows.append(
                 {
@@ -54,6 +57,7 @@ class HtmlReporter(BaseReporter):
             statistics=result.statistics,
             change_percentage=f"{result.statistics.change_percentage * 100:.1f}%",
             rows=rows,
+            show_source=show_source,
         )
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +92,13 @@ class HtmlReporter(BaseReporter):
             return rendered
         fallback = (change.segment_after.target if change.segment_after else "") or ""
         return self._escape(fallback)
+
+    @staticmethod
+    def _source_text(change) -> str:
+        before = change.segment_before
+        after = change.segment_after
+        source = after.source if after is not None else before.source if before is not None else ""
+        return source or ""
 
     @staticmethod
     def _escape(text: str) -> str:

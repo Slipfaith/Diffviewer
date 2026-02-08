@@ -254,7 +254,28 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.clear_file_lists_btn)
         layout.addLayout(controls)
 
+        self.excel_source_options_widget = QWidget(self)
+        excel_options = QHBoxLayout(self.excel_source_options_widget)
+        excel_options.setContentsMargins(0, 0, 0, 0)
+        excel_options.setSpacing(8)
+        excel_label = QLabel("Bilingual Excel Source columns (optional):")
+        self.excel_source_col_a_input = QLineEdit(self)
+        self.excel_source_col_a_input.setPlaceholderText("File A: A")
+        self.excel_source_col_a_input.setMaximumWidth(130)
+        self.excel_source_col_a_input.textChanged.connect(self._update_action_state)
+        self.excel_source_col_b_input = QLineEdit(self)
+        self.excel_source_col_b_input.setPlaceholderText("File B: A")
+        self.excel_source_col_b_input.setMaximumWidth(130)
+        self.excel_source_col_b_input.textChanged.connect(self._update_action_state)
+        excel_options.addWidget(excel_label)
+        excel_options.addWidget(self.excel_source_col_a_input)
+        excel_options.addWidget(self.excel_source_col_b_input)
+        excel_options.addStretch(1)
+        layout.addWidget(self.excel_source_options_widget)
+        self.excel_source_options_widget.setVisible(False)
+
         self._refresh_file_pairing_visuals()
+        self._update_excel_source_controls_visibility()
         return page
 
     def _build_versions_mode_page(self) -> QWidget:
@@ -470,6 +491,7 @@ class MainWindow(QMainWindow):
     def _on_file_lists_changed(self, _paths: list[str]) -> None:
         self._cleanup_file_pair_state()
         self._refresh_file_pairing_visuals()
+        self._update_excel_source_controls_visibility()
         self._update_action_state()
 
     def _on_file_a_tile_clicked(self, file_path: str) -> None:
@@ -491,7 +513,15 @@ class MainWindow(QMainWindow):
         self.manual_file_pairs.clear()
         self.pending_file_a = None
         self._refresh_file_pairing_visuals()
+        self._update_excel_source_controls_visibility()
         self._update_action_state()
+
+    def _update_excel_source_controls_visibility(self) -> None:
+        should_show = any(
+            Path(path).suffix.lower() in {".xlsx", ".xls"}
+            for path in self.file_a_zone.file_paths() + self.file_b_zone.file_paths()
+        )
+        self.excel_source_options_widget.setVisible(should_show)
 
     def _cleanup_file_pair_state(self) -> None:
         files_a = set(self.file_a_zone.file_paths())
@@ -746,9 +776,28 @@ class MainWindow(QMainWindow):
                     f"{Path(bad_a).name} vs {Path(bad_b).name}",
                 )
                 return
+            excel_source_col_a: str | None = None
+            excel_source_col_b: str | None = None
+            has_excel_pairs = any(
+                Path(file_a).suffix.lower() in {".xlsx", ".xls"}
+                for file_a, _ in pairs
+            )
+            if has_excel_pairs:
+                try:
+                    excel_source_col_a = self._normalize_excel_column_input(
+                        self.excel_source_col_a_input.text()
+                    )
+                    excel_source_col_b = self._normalize_excel_column_input(
+                        self.excel_source_col_b_input.text()
+                    )
+                except ValueError as exc:
+                    QMessageBox.warning(self, "Invalid Excel source column", str(exc))
+                    return
             payload = {
                 "pairs": pairs,
                 "output_dir": output_dir,
+                "excel_source_col_a": excel_source_col_a,
+                "excel_source_col_b": excel_source_col_b,
             }
         elif self.current_mode == self.MODE_VERSIONS:
             output_dir = self.output_line.text().strip()
@@ -954,6 +1003,26 @@ class MainWindow(QMainWindow):
             return "All files (*.*)"
         patterns = " ".join(f"*{ext}" for ext in self.supported_extensions)
         return f"Supported files ({patterns});;All files (*.*)"
+
+    @staticmethod
+    def _normalize_excel_column_input(value: str) -> str | None:
+        text = value.strip()
+        if not text:
+            return None
+        upper = text.upper()
+        if upper.isdigit():
+            number = int(upper)
+            if number <= 0:
+                raise ValueError(
+                    "Excel source column must be a positive number or letters (A, B, ...)."
+                )
+            return str(number)
+        if upper.isalpha():
+            return upper
+        raise ValueError(
+            "Excel source column must contain only letters (A, B, ...) "
+            "or a positive column number."
+        )
 
     @staticmethod
     def _build_styles() -> str:

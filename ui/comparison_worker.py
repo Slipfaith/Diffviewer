@@ -41,6 +41,8 @@ class ComparisonWorker(QThread):
                                 str(file_a),
                                 str(file_b),
                                 pair_output,
+                                excel_source_column_a=self.payload.get("excel_source_col_a"),
+                                excel_source_column_b=self.payload.get("excel_source_col_b"),
                             )
                             file_results.append(
                                 {
@@ -76,6 +78,8 @@ class ComparisonWorker(QThread):
                     self.payload["file_a"],
                     self.payload["file_b"],
                     self.payload["output_dir"],
+                    excel_source_column_a=self.payload.get("excel_source_col_a"),
+                    excel_source_column_b=self.payload.get("excel_source_col_b"),
                 )
                 self.finished.emit(
                     {

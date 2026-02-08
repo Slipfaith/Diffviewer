@@ -46,6 +46,33 @@ def test_orchestrator_txt(tmp_path: Path) -> None:
     assert html_file.stem == excel_file.stem
 
 
+def test_orchestrator_xlsx_with_source_columns(tmp_path: Path) -> None:
+    orchestrator = Orchestrator()
+    outputs = orchestrator.compare_files(
+        str(FIXTURES / "sample_a.xlsx"),
+        str(FIXTURES / "sample_b.xlsx"),
+        str(tmp_path),
+        excel_source_column_a="A",
+        excel_source_column_b="A",
+    )
+    assert len(outputs) == 2
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    excel_file = next(Path(output) for output in outputs if Path(output).suffix == ".xlsx")
+    assert html_file.exists()
+    assert excel_file.exists()
+
+
+def test_orchestrator_invalid_xlsx_source_column(tmp_path: Path) -> None:
+    orchestrator = Orchestrator()
+    with pytest.raises(ParseError):
+        orchestrator.compare_files(
+            str(FIXTURES / "sample_a.xlsx"),
+            str(FIXTURES / "sample_b.xlsx"),
+            str(tmp_path),
+            excel_source_column_a="A-1",
+        )
+
+
 def test_orchestrator_unsupported_format(tmp_path: Path) -> None:
     file_a = tmp_path / "file_a.unknown"
     file_b = tmp_path / "file_b.unknown"

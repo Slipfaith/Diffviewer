@@ -22,14 +22,14 @@ from core.models import (
 from reporters.excel_reporter import ExcelReporter
 
 
-def make_segment(segment_id: str, target: str) -> Segment:
+def make_segment(segment_id: str, target: str, source: str | None = None) -> Segment:
     context = SegmentContext(
         file_path="file.txt",
         location=segment_id,
         position=int(segment_id),
         group=None,
     )
-    return Segment(id=segment_id, source=None, target=target, context=context)
+    return Segment(id=segment_id, source=source, target=target, context=context)
 
 
 def make_doc(name: str, segments: list[Segment]) -> ParsedDocument:
@@ -95,7 +95,7 @@ def test_excel_reporter_generates_file(tmp_path: Path) -> None:
 
     report_ws = workbook["Report"]
     assert report_ws.max_row == len(changes) + 1
-    assert report_ws.max_column == 6
+    assert report_ws.max_column == 5
 
     stats_ws = workbook["Statistics"]
     assert stats_ws.max_row >= 5
@@ -117,10 +117,9 @@ def test_excel_reporter_column_widths(tmp_path: Path) -> None:
     widths = {
         "A": 6,
         "B": 15,
-        "C": 30,
+        "C": 45,
         "D": 45,
-        "E": 45,
-        "F": 12,
+        "E": 12,
     }
 
     width_map: dict[int, float] = {}
@@ -134,6 +133,40 @@ def test_excel_reporter_column_widths(tmp_path: Path) -> None:
         idx = column_index_from_string(col)
         assert idx in width_map
         assert width_map[idx] == pytest.approx(expected, abs=1.0)
+
+
+def test_excel_reporter_shows_source_column_when_present(tmp_path: Path) -> None:
+    seg_before = make_segment("1", "Hola", source="Hello")
+    seg_after = make_segment("1", "Privet", source="Hello")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_before,
+            segment_after=seg_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.DELETE, text="Hola"),
+                DiffChunk(type=ChunkType.INSERT, text="Privet"),
+            ],
+            similarity=0.0,
+            context=seg_after.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.xliff", [seg_before]),
+        file_b=make_doc("b.xliff", [seg_after]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "with_source.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+    assert ws.max_column == 6
+    assert ws["C1"].value == "Source"
+    assert ws["C2"].value == "Hello"
+    assert ws["D2"].value == "Hola"
+    assert ws["E2"].value == "Privet"
 
 
 def test_excel_reporter_generate_from_json(tmp_path: Path) -> None:
@@ -226,14 +259,14 @@ def test_excel_reporter_old_new_columns_logic(tmp_path: Path) -> None:
     ws = workbook["Report"]
 
     # Row 2: MODIFIED
-    assert ws["D2"].value == "A old text"
-    assert ws["E2"].value == "A new text"
+    assert ws["C2"].value == "A old text"
+    assert ws["D2"].value == "A new text"
     # Row 3: ADDED
-    assert ws["D3"].value in ("", None)
-    assert ws["E3"].value == "Only new"
+    assert ws["C3"].value in ("", None)
+    assert ws["D3"].value == "Only new"
     # Row 4: DELETED
-    assert ws["D4"].value == "Only old"
-    assert ws["E4"].value in ("", None)
+    assert ws["C4"].value == "Only old"
+    assert ws["D4"].value in ("", None)
 
 
 def test_excel_reporter_hides_unchanged_by_default(tmp_path: Path) -> None:
@@ -260,7 +293,7 @@ def test_excel_reporter_hides_unchanged_by_default(tmp_path: Path) -> None:
     output_file = reporter.generate(result, str(tmp_path / "hidden.xlsx"))
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
-    assert ws.auto_filter.ref == "A1:F2"
+    assert ws.auto_filter.ref == "A1:E2"
     assert ws.row_dimensions[2].hidden is True
 
 
@@ -289,10 +322,10 @@ def test_excel_reporter_keeps_formula_like_text_as_string(tmp_path: Path) -> Non
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
 
+    assert ws["C2"].value == '=IF(1=1,"","")'
+    assert ws["C2"].data_type == "s"
     assert ws["D2"].value == '=IF(1=1,"","")'
     assert ws["D2"].data_type == "s"
-    assert ws["E2"].value == '=IF(1=1,"","")'
-    assert ws["E2"].data_type == "s"
 
 
 def test_excel_reporter_rich_text_falls_back_when_write_fails(
@@ -335,8 +368,8 @@ def test_excel_reporter_rich_text_falls_back_when_write_fails(
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
 
-    assert ws["D2"].value == "A old text"
-    assert ws["E2"].value == "A new text"
+    assert ws["C2"].value == "A old text"
+    assert ws["D2"].value == "A new text"
 
 
 def test_excel_reporter_does_not_warn_on_two_fragment_rich_case(
@@ -378,4 +411,4 @@ def test_excel_reporter_does_not_warn_on_two_fragment_rich_case(
 
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
-    assert ws["E2"].value == "ac"
+    assert ws["D2"].value == "ac"

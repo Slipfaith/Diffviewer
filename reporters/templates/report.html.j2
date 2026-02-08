@@ -54,7 +54,9 @@
     <colgroup>
       <col class="col-index">
       <col class="col-id">
+      {% if show_source %}
       <col class="col-source">
+      {% endif %}
       <col class="col-old-target">
       <col class="col-new-target">
       <col class="col-type">
@@ -63,7 +65,9 @@
       <tr>
         <th>#</th>
         <th>Segment ID</th>
+        {% if show_source %}
         <th>Source</th>
+        {% endif %}
         <th>Old Target</th>
         <th>New Target</th>
         <th>Type</th>
@@ -74,7 +78,9 @@
       <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}">
         <td>{{ row.index }}</td>
         <td>{{ row.segment_id }}</td>
+        {% if show_source %}
         <td class="source-cell">{{ row.source|safe }}</td>
+        {% endif %}
         <td class="diff-cell old-target">{{ row.old_target|safe }}</td>
         <td class="diff-cell new-target">{{ row.new_target|safe }}</td>
         <td class="type-cell">{{ row.change_type }}</td>

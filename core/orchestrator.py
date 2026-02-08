@@ -16,6 +16,7 @@ from core.models import (
     UnsupportedFormatError,
 )
 from core.registry import ParserRegistry, ReporterRegistry
+from parsers.base import BaseParser
 from reporters.docx_reporter import DocxTrackChangesReporter
 from reporters.excel_reporter import ExcelReporter
 from reporters.html_reporter import HtmlReporter
@@ -34,7 +35,15 @@ class Orchestrator:
         ParserRegistry.discover()
         ReporterRegistry.discover()
 
-    def compare_files(self, file_a: str, file_b: str, output_dir: str) -> list[str]:
+    def compare_files(
+        self,
+        file_a: str,
+        file_b: str,
+        output_dir: str,
+        *,
+        excel_source_column_a: str | int | None = None,
+        excel_source_column_b: str | int | None = None,
+    ) -> list[str]:
         path_a = Path(file_a)
         path_b = Path(file_b)
         ext_a = path_a.suffix.lower()
@@ -44,19 +53,33 @@ class Orchestrator:
 
         self._progress("Selecting parser", 0.1)
         try:
-            parser = ParserRegistry.get_parser(str(path_a))
+            parser_a = ParserRegistry.get_parser(str(path_a))
+            parser_b = ParserRegistry.get_parser(str(path_b))
         except UnsupportedFormatError as exc:
             raise UnsupportedFormatError(ext_a) from exc
 
+        self._configure_excel_source_column(
+            parser=parser_a,
+            extension=ext_a,
+            source_column=excel_source_column_a,
+            file_path=file_a,
+        )
+        self._configure_excel_source_column(
+            parser=parser_b,
+            extension=ext_b,
+            source_column=excel_source_column_b,
+            file_path=file_b,
+        )
+
         self._progress("Parsing file A", 0.2)
         try:
-            doc_a = parser.parse(str(path_a))
+            doc_a = parser_a.parse(str(path_a))
         except ParseError as exc:
             raise ParseError(file_a, exc.reason) from exc
 
         self._progress("Parsing file B", 0.4)
         try:
-            doc_b = parser.parse(str(path_b))
+            doc_b = parser_b.parse(str(path_b))
         except ParseError as exc:
             raise ParseError(file_b, exc.reason) from exc
 
@@ -236,6 +259,25 @@ class Orchestrator:
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:
             self.on_progress(message, value)
+
+    @staticmethod
+    def _configure_excel_source_column(
+        parser: BaseParser,
+        extension: str,
+        source_column: str | int | None,
+        file_path: str,
+    ) -> None:
+        if extension not in {".xlsx", ".xls"}:
+            return
+        if source_column is None:
+            return
+        apply_source_column = getattr(parser, "set_source_column", None)
+        if not callable(apply_source_column):
+            return
+        try:
+            apply_source_column(source_column)
+        except ValueError as exc:
+            raise ParseError(file_path, str(exc)) from exc
 
     @staticmethod
     def _safe_stem(filename: str) -> str:
