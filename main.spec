@@ -3,17 +3,33 @@
 from pathlib import Path
 
 
-project_root = Path(__file__).resolve().parent
+spec_root = globals().get("SPECPATH")
+if not spec_root:
+    spec_file = globals().get("SPEC")
+    if spec_file:
+        spec_root = str(Path(spec_file).resolve().parent)
+if not spec_root:
+    raise RuntimeError("SPECPATH is not defined. Run PyInstaller with this spec file.")
+
+project_root = Path(spec_root).resolve()
+templates_dir = project_root / "reporters" / "templates"
 icon_file = project_root / "Diffviewer.ico"
+
+if not templates_dir.is_dir():
+    raise FileNotFoundError(f"Templates directory not found: {templates_dir}")
+if not icon_file.is_file():
+    raise FileNotFoundError(f"Icon file not found: {icon_file}")
+
+datas = [
+    (str(templates_dir), "reporters/templates"),
+    (str(icon_file), "."),
+]
 
 a = Analysis(
     ["main.py"],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[
-        ("reporters/templates", "reporters/templates"),
-        (str(icon_file), "."),
-    ],
+    datas=datas,
     hiddenimports=[
         "core.qa_verify",
         "parsers.xliff_parser",
