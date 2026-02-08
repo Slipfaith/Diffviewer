@@ -41,6 +41,15 @@ def test_comparison_worker_creation() -> None:
     assert "pairs" in worker.payload
 
 
+def test_comparison_worker_pair_folder_name_is_compact() -> None:
+    file_a = ("a" * 150) + ".txt"
+    file_b = ("b" * 150) + ".txt"
+    folder = ComparisonWorker._pair_folder_name(1, file_a, file_b)
+    assert folder.startswith("001_")
+    assert "_vs_" in folder
+    assert len(folder) <= 100
+
+
 def test_main_window_mode_switching(app: QApplication) -> None:
     window = MainWindow()
 

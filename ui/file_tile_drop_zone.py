@@ -33,21 +33,62 @@ class _FileTileWidget(QFrame):
         super().__init__(parent)
         self._filename = filename
         self._label = QLabel(filename, self)
-        self._label.setWordWrap(True)
-        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setWordWrap(False)
+        self._label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         self._label.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(10, 6, 10, 6)
         layout.addWidget(self._label)
+        self._refresh_text()
         self.apply_visual(TileVisualState())
 
     def set_filename(self, filename: str) -> None:
         self._filename = filename
-        self._label.setText(filename)
+        self._refresh_text()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._refresh_text()
+
+    def _refresh_text(self) -> None:
+        available_width = max(24, self._label.width() - 2)
+        text = self._label.fontMetrics().elidedText(
+            self._filename,
+            Qt.TextElideMode.ElideRight,
+            available_width,
+        )
+        tooltip = self._wrap_tooltip(self._filename)
+        self._label.setText(text)
+        self._label.setToolTip(tooltip)
+        self.setToolTip(tooltip)
+
+    @staticmethod
+    def _wrap_tooltip(text: str, line_len: int = 32) -> str:
+        if len(text) <= line_len:
+            return text
+
+        chunks: list[str] = []
+        remaining = text
+        while len(remaining) > line_len:
+            split_at = max(
+                remaining.rfind(" ", 0, line_len + 1),
+                remaining.rfind("_", 0, line_len + 1),
+                remaining.rfind("-", 0, line_len + 1),
+                remaining.rfind(".", 0, line_len + 1),
+            )
+            if split_at <= 0:
+                split_at = line_len
+            chunks.append(remaining[:split_at].rstrip(" _-."))
+            remaining = remaining[split_at:].lstrip(" _-.")
+        if remaining:
+            chunks.append(remaining)
+        return "\n".join(chunks) if chunks else text
 
     def apply_visual(self, state: TileVisualState) -> None:
         background = "#ffffff"
@@ -230,7 +271,7 @@ class FileTileDropZone(QFrame):
                 item.setSizeHint(self._tile_size_hint())
                 item.setData(Qt.ItemDataRole.DisplayRole, file_path.name)
                 item.setData(Qt.ItemDataRole.UserRole, file_path_str)
-                item.setToolTip(file_path_str)
+                item.setToolTip(_FileTileWidget._wrap_tooltip(file_path.name))
                 widget = _FileTileWidget(file_path.name, self.list_widget)
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, widget)
@@ -356,7 +397,7 @@ class FileTileDropZone(QFrame):
         font_metrics = probe.fontMetrics()
         line_height = font_metrics.height()
         width = max(220, line_height * 12)
-        height = max(56, line_height * 3)
+        height = max(42, line_height * 2)
         return QSize(width, height)
 
     def _file_filter(self) -> str:

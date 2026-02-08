@@ -4,8 +4,8 @@ from collections import defaultdict
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import QEvent, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -621,13 +621,31 @@ class MainWindow(QMainWindow):
     def _open_report(self, path: str | None) -> None:
         if not path:
             return
-        if not Path(path).exists():
-            QMessageBox.warning(self, "File not found", f"Report not found:\n{path}")
-            return
+        report_path = Path(path).expanduser()
         try:
-            os.startfile(path)  # type: ignore[attr-defined]
+            report_path = report_path.resolve(strict=False)
+        except Exception:
+            pass
+
+        if not report_path.exists():
+            QMessageBox.warning(
+                self,
+                "File not found",
+                f"Report not found:\n{report_path}",
+            )
+            return
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(report_path))):
+            return
+
+        try:
+            os.startfile(str(report_path))  # type: ignore[attr-defined]
         except Exception as exc:
-            QMessageBox.warning(self, "Open failed", str(exc))
+            QMessageBox.warning(
+                self,
+                "Open failed",
+                f"Cannot open report:\n{report_path}\n\n{exc}",
+            )
 
     def _update_action_state(self) -> None:
         output_ok = bool(self.output_line.text().strip())

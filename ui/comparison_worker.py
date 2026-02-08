@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -111,8 +112,23 @@ class ComparisonWorker(QThread):
 
     @staticmethod
     def _pair_folder_name(index: int, file_a: str, file_b: str) -> str:
-        raw = f"{index:03d}_{Path(file_a).stem}_vs_{Path(file_b).stem}"
-        safe = raw.replace(" ", "_")
+        stem_a = Path(file_a).stem
+        stem_b = Path(file_b).stem
+        digest = hashlib.sha1(
+            f"{stem_a}|{stem_b}".encode("utf-8", errors="ignore")
+        ).hexdigest()[:10]
+        part_a = ComparisonWorker._safe_name_part(stem_a)
+        part_b = ComparisonWorker._safe_name_part(stem_b)
+        return f"{index:03d}_{part_a}_vs_{part_b}_{digest}"
+
+    @staticmethod
+    def _safe_name_part(value: str, max_len: int = 36) -> str:
+        safe = value.replace(" ", "_")
         for bad in '<>:"/\\|?*':
             safe = safe.replace(bad, "_")
-        return safe
+        safe = safe.strip("._")
+        if not safe:
+            safe = "file"
+        if len(safe) > max_len:
+            safe = safe[:max_len].rstrip("._")
+        return safe or "file"
