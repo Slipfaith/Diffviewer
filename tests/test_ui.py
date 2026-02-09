@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 
@@ -8,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PyQt6.QtWidgets import QApplication
 
+from core.models import ChangeStatistics, ComparisonResult, ParsedDocument
 from ui.comparison_worker import ComparisonWorker
 from ui.file_drop_zone import FileDropZone
 from ui.main_window import MainWindow
@@ -95,4 +97,43 @@ def test_excel_source_row_visibility_for_excel_files(app: QApplication) -> None:
 
     window.file_a_zone.clear_files()
     assert window.excel_source_options_widget.isHidden() is True
+    window.close()
+
+
+def test_main_window_shows_no_changes_message_for_empty_report(
+    app: QApplication, tmp_path: Path, monkeypatch
+) -> None:
+    window = MainWindow()
+    report_html = tmp_path / "report.html"
+    report_excel = tmp_path / "report.xlsx"
+    report_html.write_text("<html></html>", encoding="utf-8")
+    report_excel.write_bytes(b"")
+
+    doc = ParsedDocument(segments=[], format_name="TXT", file_path="a.txt")
+    comparison = ComparisonResult(
+        file_a=doc,
+        file_b=doc,
+        changes=[],
+        statistics=ChangeStatistics.from_changes([]),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    messages: list[str] = []
+
+    def fake_information(_parent, _title, text):
+        messages.append(text)
+        return 0
+
+    monkeypatch.setattr("ui.main_window.QMessageBox.information", fake_information)
+
+    window._on_worker_finished(
+        {
+            "mode": window.MODE_FILE,
+            "multi": False,
+            "outputs": [str(report_html), str(report_excel)],
+            "comparison": comparison,
+        }
+    )
+
+    assert any("Правок не найдено" in message for message in messages)
     window.close()

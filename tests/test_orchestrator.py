@@ -147,6 +147,39 @@ def test_orchestrator_compare_folders_empty(tmp_path: Path) -> None:
     assert Path(batch.summary_excel_path).exists()
 
 
+def test_orchestrator_compare_file_pairs_single_report(tmp_path: Path) -> None:
+    orchestrator = Orchestrator()
+    pairs = [
+        (str(FIXTURES / "sample_a.txt"), str(FIXTURES / "sample_b.txt")),
+        (str(FIXTURES / "sample_a.srt"), str(FIXTURES / "sample_b.srt")),
+    ]
+
+    result = orchestrator.compare_file_pairs(pairs, str(tmp_path))
+    outputs = [Path(item) for item in result["outputs"]]
+
+    assert len(outputs) == 2
+    html_file = next(path for path in outputs if path.suffix == ".html")
+    excel_file = next(path for path in outputs if path.suffix == ".xlsx")
+    assert html_file.exists()
+    assert excel_file.exists()
+    assert html_file.name.startswith("changereport_multi_")
+    assert excel_file.name.startswith("changereport_multi_")
+    assert html_file.stem == excel_file.stem
+
+    file_results = result["file_results"]
+    assert len(file_results) == 2
+    assert all(item["error"] is None for item in file_results)
+
+    stats = result["statistics"]
+    assert stats is not None
+    assert stats.total_segments > 0
+
+    html_content = html_file.read_text(encoding="utf-8")
+    assert "sample_a.txt vs sample_b.txt" in html_content
+    assert "sample_a.srt vs sample_b.srt" in html_content
+    assert 'id="file-filter"' in html_content
+
+
 def test_orchestrator_compare_versions(tmp_path: Path) -> None:
     v1 = tmp_path / "v1.txt"
     v2 = tmp_path / "v2.txt"

@@ -9,8 +9,12 @@
 </head>
 <body>
   <header class="page-header">
-    <h1>Change Tracker</h1>
+    <h1>{{ report_title }}</h1>
+    {% if report_subtitle %}
+    <div class="subtitle">{{ report_subtitle }}</div>
+    {% elif file_a_name or file_b_name %}
     <div class="subtitle">{{ file_a_name }} vs {{ file_b_name }}</div>
+    {% endif %}
     <div class="meta">Generated: {{ timestamp }}</div>
   </header>
 
@@ -42,17 +46,33 @@
   </section>
 
   <section class="filters">
-    <button class="filter-btn active" data-filter="changed">Changed</button>
-    <button class="filter-btn" data-filter="all">Show All</button>
-    <button class="filter-btn" data-filter="added">Added</button>
-    <button class="filter-btn" data-filter="deleted">Deleted</button>
-    <button class="filter-btn" data-filter="modified">Modified</button>
-    <button class="filter-btn" data-filter="unchanged">Unchanged</button>
+    <div class="filter-group">
+      <button class="filter-btn active" data-filter="changed">Changed</button>
+      <button class="filter-btn" data-filter="all">Show All</button>
+      <button class="filter-btn" data-filter="added">Added</button>
+      <button class="filter-btn" data-filter="deleted">Deleted</button>
+      <button class="filter-btn" data-filter="modified">Modified</button>
+      <button class="filter-btn" data-filter="unchanged">Unchanged</button>
+    </div>
+    {% if multi_mode %}
+    <div class="filter-group file-filter-group">
+      <label for="file-filter">File:</label>
+      <select id="file-filter" class="file-filter-select">
+        <option value="all">All files</option>
+        {% for option in file_options %}
+        <option value="{{ option.key }}">{{ option.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
   </section>
 
   <table class="report-table">
     <colgroup>
       <col class="col-index">
+      {% if multi_mode %}
+      <col class="col-file">
+      {% endif %}
       <col class="col-id">
       {% if show_source %}
       <col class="col-source">
@@ -64,6 +84,9 @@
     <thead>
       <tr>
         <th>#</th>
+        {% if multi_mode %}
+        <th>File Pair</th>
+        {% endif %}
         <th>Segment ID</th>
         {% if show_source %}
         <th>Source</th>
@@ -75,8 +98,11 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}">
+      <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}" data-file="{{ row.file_key }}">
         <td>{{ row.index }}</td>
+        {% if multi_mode %}
+        <td class="file-cell">{{ row.file_label }}</td>
+        {% endif %}
         <td>{{ row.segment_id }}</td>
         {% if show_source %}
         <td class="source-cell">{{ row.source|safe }}</td>
@@ -88,48 +114,71 @@
       {% endfor %}
     </tbody>
   </table>
+  <div id="empty-state" class="empty-state hidden">No rows match the selected filters.</div>
 
   <script>
     const buttons = document.querySelectorAll('.filter-btn');
     const rows = document.querySelectorAll('tbody tr');
+    const fileFilter = document.getElementById('file-filter');
+    const emptyState = document.getElementById('empty-state');
     const changedTypes = new Set(['added', 'deleted', 'modified', 'moved']);
+    let currentTypeFilter = 'changed';
+    let currentFileFilter = fileFilter ? fileFilter.value : 'all';
 
     function setActive(button) {
       buttons.forEach((btn) => btn.classList.remove('active'));
       button.classList.add('active');
     }
 
-    function applyFilter(filter) {
+    function isTypeVisible(row, filter) {
+      if (filter === 'all') {
+        return true;
+      }
+      if (filter === 'changed') {
+        return changedTypes.has(row.dataset.type);
+      }
+      return row.dataset.type === filter;
+    }
+
+    function isFileVisible(row, fileFilterValue) {
+      if (fileFilterValue === 'all') {
+        return true;
+      }
+      return row.dataset.file === fileFilterValue;
+    }
+
+    function applyFilters() {
+      let visibleCount = 0;
       rows.forEach((row) => {
-        if (filter === 'all') {
-          row.classList.remove('hidden');
-          return;
-        }
-        if (filter === 'changed') {
-          if (changedTypes.has(row.dataset.type)) {
-            row.classList.remove('hidden');
-          } else {
-            row.classList.add('hidden');
-          }
-          return;
-        }
-        if (row.dataset.type === filter) {
-          row.classList.remove('hidden');
-        } else {
-          row.classList.add('hidden');
+        const visibleByType = isTypeVisible(row, currentTypeFilter);
+        const visibleByFile = isFileVisible(row, currentFileFilter);
+        const isVisible = visibleByType && visibleByFile;
+        row.classList.toggle('hidden', !isVisible);
+        if (isVisible) {
+          visibleCount += 1;
         }
       });
+      if (emptyState) {
+        emptyState.classList.toggle('hidden', visibleCount > 0);
+      }
     }
 
     buttons.forEach((button) => {
       button.addEventListener('click', () => {
-        const filter = button.dataset.filter;
+        currentTypeFilter = button.dataset.filter || 'changed';
         setActive(button);
-        applyFilter(filter);
+        applyFilters();
       });
     });
 
-    applyFilter('changed');
+    if (fileFilter) {
+      fileFilter.addEventListener('change', () => {
+        currentFileFilter = fileFilter.value;
+        applyFilters();
+      });
+    }
+
+    applyFilters();
   </script>
 </body>
 </html>

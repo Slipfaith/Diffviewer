@@ -63,8 +63,32 @@ body {
 .filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-filter-group label {
+  font-size: 13px;
+  color: #374151;
+}
+
+.file-filter-select {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #1f2933;
+  border-radius: 8px;
+  font-size: 13px;
+  padding: 8px 10px;
+  min-width: 240px;
 }
 
 .filter-btn {
@@ -110,8 +134,17 @@ body {
   overflow-wrap: anywhere;
 }
 
+.file-cell {
+  color: #0f172a;
+  font-weight: 600;
+}
+
 .col-index {
   width: 56px;
+}
+
+.col-file {
+  width: 260px;
 }
 
 .col-id {
@@ -197,6 +230,12 @@ ins {
   display: none;
 }
 
+.empty-state {
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
 @media (max-width: 900px) {
   body {
     padding: 20px;
@@ -205,5 +244,9 @@ ins {
   .report-table th,
   .report-table td {
     padding: 10px;
+  }
+
+  .file-filter-select {
+    min-width: 180px;
   }
 }

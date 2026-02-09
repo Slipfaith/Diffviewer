@@ -242,3 +242,70 @@ def test_html_reporter_preserves_newlines(tmp_path: Path) -> None:
 
     assert "white-space: pre-wrap;" in output_content
     assert "Line 1\nLine 2" in output_content
+
+
+def test_html_reporter_generates_multi_report_with_file_filter(tmp_path: Path) -> None:
+    seg_a_before = make_segment("1", "Hello")
+    seg_a_after = make_segment("1", "Hello world")
+    changes_a = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_a_before,
+            segment_after=seg_a_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.EQUAL, text="Hello"),
+                DiffChunk(type=ChunkType.INSERT, text=" world"),
+            ],
+            similarity=0.9,
+            context=seg_a_after.context,
+        )
+    ]
+    result_a = ComparisonResult(
+        file_a=make_doc("alpha_a.txt", [seg_a_before]),
+        file_b=make_doc("alpha_b.txt", [seg_a_after]),
+        changes=changes_a,
+        statistics=ChangeStatistics.from_changes(changes_a),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    seg_b_before = make_segment("2", "Old")
+    seg_b_after = make_segment("2", "New")
+    changes_b = [
+        ChangeRecord(
+            type=ChangeType.MODIFIED,
+            segment_before=seg_b_before,
+            segment_after=seg_b_after,
+            text_diff=[
+                DiffChunk(type=ChunkType.DELETE, text="Old"),
+                DiffChunk(type=ChunkType.INSERT, text="New"),
+            ],
+            similarity=0.0,
+            context=seg_b_after.context,
+        )
+    ]
+    result_b = ComparisonResult(
+        file_a=make_doc("beta_a.txt", [seg_b_before]),
+        file_b=make_doc("beta_b.txt", [seg_b_after]),
+        changes=changes_b,
+        statistics=ChangeStatistics.from_changes(changes_b),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(
+        reporter.generate_multi(
+            [
+                ("alpha_a.txt vs alpha_b.txt", result_a),
+                ("beta_a.txt vs beta_b.txt", result_b),
+            ],
+            str(tmp_path / "multi.html"),
+        )
+    )
+    output_content = output_path.read_text(encoding="utf-8")
+
+    assert 'id="file-filter"' in output_content
+    assert "alpha_a.txt vs alpha_b.txt" in output_content
+    assert "beta_a.txt vs beta_b.txt" in output_content
+    assert 'data-file="file-1"' in output_content
+    assert 'data-file="file-2"' in output_content
+    assert ">File Pair<" in output_content

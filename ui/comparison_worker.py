@@ -26,50 +26,49 @@ class ComparisonWorker(QThread):
             if self.mode == "file":
                 if "pairs" in self.payload:
                     pairs = list(self.payload["pairs"])
-                    file_results: list[dict[str, Any]] = []
-                    total = max(1, len(pairs))
-                    for index, pair in enumerate(pairs, start=1):
-                        file_a, file_b = pair
-                        pair_name = self._pair_folder_name(index, str(file_a), str(file_b))
-                        pair_output = str(Path(self.payload["output_dir"]) / pair_name)
-                        self._emit_progress(
-                            f"Comparing {index}/{len(pairs)}: {Path(file_a).name} vs {Path(file_b).name}",
-                            (index - 1) / total,
-                        )
-                        try:
-                            outputs = orchestrator.compare_files(
-                                str(file_a),
-                                str(file_b),
-                                pair_output,
-                                excel_source_column_a=self.payload.get("excel_source_col_a"),
-                                excel_source_column_b=self.payload.get("excel_source_col_b"),
-                            )
-                            file_results.append(
+                    if len(pairs) <= 1:
+                        if not pairs:
+                            self.finished.emit(
                                 {
-                                    "file_a": str(file_a),
-                                    "file_b": str(file_b),
-                                    "outputs": outputs,
-                                    "comparison": orchestrator.last_result,
-                                    "error": None,
-                                }
-                            )
-                        except Exception as exc:  # pragma: no cover - signal path
-                            file_results.append(
-                                {
-                                    "file_a": str(file_a),
-                                    "file_b": str(file_b),
+                                    "mode": "file",
+                                    "multi": True,
                                     "outputs": [],
-                                    "comparison": None,
-                                    "error": str(exc),
+                                    "file_results": [],
+                                    "statistics": None,
                                 }
                             )
+                            return
+                        file_a, file_b = pairs[0]
+                        outputs = orchestrator.compare_files(
+                            str(file_a),
+                            str(file_b),
+                            str(self.payload["output_dir"]),
+                            excel_source_column_a=self.payload.get("excel_source_col_a"),
+                            excel_source_column_b=self.payload.get("excel_source_col_b"),
+                        )
+                        self.finished.emit(
+                            {
+                                "mode": "file",
+                                "multi": False,
+                                "outputs": outputs,
+                                "comparison": orchestrator.last_result,
+                            }
+                        )
+                        return
 
-                    self._emit_progress("Done", 1.0)
+                    pair_result = orchestrator.compare_file_pairs(
+                        pairs=[(str(file_a), str(file_b)) for file_a, file_b in pairs],
+                        output_dir=str(self.payload["output_dir"]),
+                        excel_source_column_a=self.payload.get("excel_source_col_a"),
+                        excel_source_column_b=self.payload.get("excel_source_col_b"),
+                    )
                     self.finished.emit(
                         {
                             "mode": "file",
                             "multi": True,
-                            "file_results": file_results,
+                            "outputs": pair_result.get("outputs", []),
+                            "file_results": pair_result.get("file_results", []),
+                            "statistics": pair_result.get("statistics"),
                         }
                     )
                     return

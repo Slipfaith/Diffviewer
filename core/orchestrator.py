@@ -10,6 +10,7 @@ from core.diff_engine import DiffEngine
 from core.models import (
     BatchFileResult,
     BatchResult,
+    ChangeStatistics,
     ComparisonResult,
     MultiVersionResult,
     ParseError,
@@ -116,6 +117,79 @@ class Orchestrator:
 
         self._progress("Done", 1.0)
         return outputs
+
+    def compare_file_pairs(
+        self,
+        pairs: list[tuple[str, str]],
+        output_dir: str,
+        *,
+        excel_source_column_a: str | int | None = None,
+        excel_source_column_b: str | int | None = None,
+    ) -> dict[str, object]:
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+        successful_results: list[tuple[str, ComparisonResult]] = []
+        file_results: list[dict[str, object]] = []
+        total = len(pairs) if pairs else 1
+
+        for index, (file_a, file_b) in enumerate(pairs, start=1):
+            self._progress(
+                f"Comparing {index}/{len(pairs)}: {Path(file_a).name} vs {Path(file_b).name}",
+                (index - 1) / total,
+            )
+            try:
+                result = self._compare_pair_without_reports(
+                    file_a,
+                    file_b,
+                    excel_source_column_a=excel_source_column_a,
+                    excel_source_column_b=excel_source_column_b,
+                )
+                self.last_result = result
+                pair_label = f"{Path(file_a).name} vs {Path(file_b).name}"
+                successful_results.append((pair_label, result))
+                file_results.append(
+                    {
+                        "file_a": file_a,
+                        "file_b": file_b,
+                        "comparison": result,
+                        "error": None,
+                    }
+                )
+            except Exception as exc:
+                file_results.append(
+                    {
+                        "file_a": file_a,
+                        "file_b": file_b,
+                        "comparison": None,
+                        "error": str(exc),
+                    }
+                )
+
+        outputs: list[str] = []
+        aggregate_statistics = ChangeStatistics.from_changes([])
+        if successful_results:
+            self._progress("Generating consolidated report", 0.85)
+            timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+            base_name = f"changereport_multi_{timestamp_label}"
+            html_path = output_dir_path / f"{base_name}.html"
+            excel_path = output_dir_path / f"{base_name}.xlsx"
+            outputs.append(HtmlReporter().generate_multi(successful_results, str(html_path)))
+            outputs.append(ExcelReporter().generate_multi(successful_results, str(excel_path)))
+
+            all_changes = [
+                change
+                for _, comparison in successful_results
+                for change in comparison.changes
+            ]
+            aggregate_statistics = ChangeStatistics.from_changes(all_changes)
+
+        self._progress("Done", 1.0)
+        return {
+            "outputs": outputs,
+            "file_results": file_results,
+            "statistics": aggregate_statistics,
+        }
 
     def compare_folders(self, folder_a: str, folder_b: str, output_dir: str) -> BatchResult:
         path_a = Path(folder_a)
@@ -259,6 +333,52 @@ class Orchestrator:
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:
             self.on_progress(message, value)
+
+    def _compare_pair_without_reports(
+        self,
+        file_a: str,
+        file_b: str,
+        *,
+        excel_source_column_a: str | int | None = None,
+        excel_source_column_b: str | int | None = None,
+    ) -> ComparisonResult:
+        path_a = Path(file_a)
+        path_b = Path(file_b)
+        ext_a = path_a.suffix.lower()
+        ext_b = path_b.suffix.lower()
+        if ext_a != ext_b:
+            raise UnsupportedFormatError(f"{ext_a} vs {ext_b}")
+
+        try:
+            parser_a = ParserRegistry.get_parser(str(path_a))
+            parser_b = ParserRegistry.get_parser(str(path_b))
+        except UnsupportedFormatError as exc:
+            raise UnsupportedFormatError(ext_a) from exc
+
+        self._configure_excel_source_column(
+            parser=parser_a,
+            extension=ext_a,
+            source_column=excel_source_column_a,
+            file_path=file_a,
+        )
+        self._configure_excel_source_column(
+            parser=parser_b,
+            extension=ext_b,
+            source_column=excel_source_column_b,
+            file_path=file_b,
+        )
+
+        try:
+            doc_a = parser_a.parse(str(path_a))
+        except ParseError as exc:
+            raise ParseError(file_a, exc.reason) from exc
+
+        try:
+            doc_b = parser_b.parse(str(path_b))
+        except ParseError as exc:
+            raise ParseError(file_b, exc.reason) from exc
+
+        return DiffEngine.compare(doc_a, doc_b)
 
     @staticmethod
     def _configure_excel_source_column(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import xlsxwriter
 
-from core.models import ChangeType, ChunkType, ComparisonResult, DiffChunk
+from core.models import ChangeStatistics, ChangeType, ChunkType, ComparisonResult, DiffChunk
 from reporters.base import BaseReporter
 
 
@@ -41,6 +41,158 @@ class ExcelReporter(BaseReporter):
             ],
         }
         return self.generate_from_json(payload, output_path)
+
+    def generate_multi(
+        self,
+        comparisons: list[tuple[str, ComparisonResult]],
+        output_path: str,
+    ) -> str:
+        output_file = Path(output_path)
+        if output_file.suffix.lower() != self.output_extension:
+            output_file = output_file.with_suffix(self.output_extension)
+
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        workbook = xlsxwriter.Workbook(
+            str(output_file),
+            {
+                "strings_to_formulas": False,
+                "strings_to_numbers": False,
+                "strings_to_urls": False,
+            },
+        )
+        try:
+            report_ws = workbook.add_worksheet("All Changes")
+            stats_ws = workbook.add_worksheet("Statistics")
+
+            header_format = workbook.add_format(
+                {"bold": True, "bg_color": "#f3f4f6", "text_wrap": True}
+            )
+            row_formats = {
+                ChangeType.ADDED: workbook.add_format(
+                    {"bg_color": "#ecfdf3", "text_wrap": True}
+                ),
+                ChangeType.DELETED: workbook.add_format(
+                    {"bg_color": "#fef2f2", "text_wrap": True}
+                ),
+                ChangeType.MODIFIED: workbook.add_format(
+                    {"bg_color": "#fffbeb", "text_wrap": True}
+                ),
+                ChangeType.UNCHANGED: workbook.add_format({"text_wrap": True}),
+                ChangeType.MOVED: workbook.add_format(
+                    {"bg_color": "#eef2ff", "text_wrap": True}
+                ),
+            }
+
+            show_source = any(
+                bool(
+                    (
+                        (change.segment_after.source if change.segment_after is not None else None)
+                        or (change.segment_before.source if change.segment_before is not None else None)
+                        or ""
+                    ).strip()
+                )
+                for _, comparison in comparisons
+                for change in comparison.changes
+            )
+
+            headers = ["#", "File Pair", "File A", "File B", "Segment ID"]
+            if show_source:
+                headers.append("Source")
+            headers.extend(["Old Target", "New Target", "Type"])
+            report_ws.write_row(0, 0, headers, header_format)
+
+            col_index = 0
+            col_pair = 1
+            col_file_a = 2
+            col_file_b = 3
+            col_segment = 4
+            if show_source:
+                col_source: int | None = 5
+                col_old = 6
+                col_new = 7
+                col_type = 8
+                report_ws.set_column(0, 0, 6)
+                report_ws.set_column(1, 1, 34)
+                report_ws.set_column(2, 3, 24)
+                report_ws.set_column(4, 4, 18)
+                report_ws.set_column(5, 5, 30)
+                report_ws.set_column(6, 7, 46)
+                report_ws.set_column(8, 8, 12)
+            else:
+                col_source = None
+                col_old = 5
+                col_new = 6
+                col_type = 7
+                report_ws.set_column(0, 0, 6)
+                report_ws.set_column(1, 1, 34)
+                report_ws.set_column(2, 3, 24)
+                report_ws.set_column(4, 4, 18)
+                report_ws.set_column(5, 6, 46)
+                report_ws.set_column(7, 7, 12)
+            report_ws.freeze_panes(1, 0)
+
+            all_changes = []
+            row = 1
+            sequence = 1
+            for pair_label, comparison in comparisons:
+                file_a_name = Path(comparison.file_a.file_path).name
+                file_b_name = Path(comparison.file_b.file_path).name
+                for change in comparison.changes:
+                    all_changes.append(change)
+                    row_format = row_formats.get(change.type, row_formats[ChangeType.UNCHANGED])
+                    before = change.segment_before
+                    after = change.segment_after
+                    segment_id = after.id if after is not None else before.id if before is not None else ""
+                    source = (
+                        (after.source if after is not None else None)
+                        or (before.source if before is not None else None)
+                        or ""
+                    )
+                    old_target = before.target if before is not None else ""
+                    new_target = after.target if after is not None else ""
+
+                    report_ws.write_number(row, col_index, sequence, row_format)
+                    self._write_text(report_ws, row, col_pair, pair_label, row_format)
+                    self._write_text(report_ws, row, col_file_a, file_a_name, row_format)
+                    self._write_text(report_ws, row, col_file_b, file_b_name, row_format)
+                    self._write_text(report_ws, row, col_segment, segment_id, row_format)
+                    if col_source is not None:
+                        self._write_text(report_ws, row, col_source, source, row_format)
+                    self._write_text(report_ws, row, col_old, old_target, row_format)
+                    self._write_text(report_ws, row, col_new, new_target, row_format)
+                    self._write_text(report_ws, row, col_type, change.type.value, row_format)
+                    if change.type == ChangeType.UNCHANGED:
+                        report_ws.set_row(row, None, None, {"hidden": True})
+                    row += 1
+                    sequence += 1
+
+            end_row = max(1, row - 1)
+            report_ws.autofilter(0, 0, end_row, col_type)
+            report_ws.filter_column_list(
+                col_type,
+                ["ADDED", "DELETED", "MODIFIED", "MOVED"],
+            )
+
+            statistics = ChangeStatistics.from_changes(all_changes)
+            stats_labels = [
+                ("Pairs", len(comparisons)),
+                ("Total", statistics.total_segments),
+                ("Added", statistics.added),
+                ("Deleted", statistics.deleted),
+                ("Modified", statistics.modified),
+                ("Moved", statistics.moved),
+                ("Unchanged", statistics.unchanged),
+                ("Change %", f"{statistics.change_percentage * 100:.1f}%"),
+            ]
+            stats_ws.set_column(0, 0, 18)
+            stats_ws.set_column(1, 1, 14)
+            for row_index, (label, value) in enumerate(stats_labels):
+                stats_ws.write(row_index, 0, label, header_format)
+                stats_ws.write(row_index, 1, value)
+        finally:
+            workbook.close()
+
+        return str(output_file)
 
     def generate_from_html(self, html_path: str, output_path: str | None = None) -> str:
         html_file = Path(html_path)

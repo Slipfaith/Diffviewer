@@ -886,27 +886,33 @@ class MainWindow(QMainWindow):
                 file_results = list(payload.get("file_results", []))
                 successful = [item for item in file_results if not item.get("error")]
                 failed = [item for item in file_results if item.get("error")]
-
-                self.last_html_report = None
-                self.last_excel_report = None
-                if successful:
-                    first_outputs = [str(path) for path in successful[0].get("outputs", [])]
-                    self.last_html_report = next(
-                        (path for path in first_outputs if path.lower().endswith(".html")),
-                        None,
-                    )
-                    self.last_excel_report = next(
-                        (path for path in first_outputs if path.lower().endswith(".xlsx")),
-                        None,
-                    )
-
+                outputs = [str(path) for path in payload.get("outputs", [])]
+                self.last_html_report = next(
+                    (path for path in outputs if path.lower().endswith(".html")), None
+                )
+                self.last_excel_report = next(
+                    (path for path in outputs if path.lower().endswith(".xlsx")), None
+                )
+                statistics = payload.get("statistics")
+                changed_total = self._changed_count(statistics)
                 self.statusBar().showMessage(
-                    "Done: compared={ok}, errors={err}, pairs={total}".format(
+                    "Done: pairs={total}, compared={ok}, errors={err}, changed={changed}".format(
+                        total=len(file_results),
                         ok=len(successful),
                         err=len(failed),
-                        total=len(file_results),
+                        changed=changed_total,
                     )
                 )
+                if (
+                    self.last_html_report
+                    and statistics is not None
+                    and not self._statistics_has_changes(statistics)
+                ):
+                    QMessageBox.information(
+                        self,
+                        "No changes",
+                        "Правок не найдено: отчет пустой.",
+                    )
                 if failed:
                     preview = "\n".join(
                         f"- {Path(item['file_a']).name} vs {Path(item['file_b']).name}: {item['error']}"
@@ -938,6 +944,12 @@ class MainWindow(QMainWindow):
                             unchanged=stats.unchanged,
                         )
                     )
+                    if self.last_html_report and not self._statistics_has_changes(stats):
+                        QMessageBox.information(
+                            self,
+                            "No changes",
+                            "Правок не найдено: отчет пустой.",
+                        )
         elif mode == self.MODE_VERSIONS:
             result = payload["result"]
             self.last_html_report = result.summary_report_path
@@ -1031,6 +1043,28 @@ class MainWindow(QMainWindow):
             enabled = bool(self._qa_can_run())
         self.compare_btn.setEnabled(enabled and self.worker is None)
         self._update_qa_controls()
+
+    @staticmethod
+    def _changed_count(statistics: object) -> int:
+        if statistics is None:
+            return 0
+        if isinstance(statistics, dict):
+            return int(
+                statistics.get("added", 0)
+                + statistics.get("deleted", 0)
+                + statistics.get("modified", 0)
+                + statistics.get("moved", 0)
+            )
+        return int(
+            getattr(statistics, "added", 0)
+            + getattr(statistics, "deleted", 0)
+            + getattr(statistics, "modified", 0)
+            + getattr(statistics, "moved", 0)
+        )
+
+    @staticmethod
+    def _statistics_has_changes(statistics: object) -> bool:
+        return MainWindow._changed_count(statistics) > 0
 
     def _supported_filter(self) -> str:
         if not self.supported_extensions:
