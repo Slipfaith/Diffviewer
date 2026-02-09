@@ -73,6 +73,23 @@ def test_similarity_below_threshold_becomes_added_deleted() -> None:
     assert all(change.type != ChangeType.MODIFIED for change in result.changes)
 
 
+def test_xliff_same_id_low_similarity_stays_modified() -> None:
+    doc_a = make_doc([make_segment("1", "aaa", 1)], name="XLIFF")
+    doc_b = make_doc([make_segment("1", "bbbbbbbbbbbbbbbbbbbb", 1)], name="XLIFF")
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert len(result.changes) == 1
+    assert result.statistics.modified == 1
+    assert result.statistics.added == 0
+    assert result.statistics.deleted == 0
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert change.segment_before is not None
+    assert change.segment_after is not None
+    assert change.segment_before.id == "1"
+    assert change.segment_after.id == "1"
+
+
 def test_empty_documents() -> None:
     doc_a = make_doc([])
     doc_b = make_doc([])

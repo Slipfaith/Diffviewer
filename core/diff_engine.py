@@ -223,6 +223,12 @@ class TextDiffer:
 
 class DiffEngine:
     @staticmethod
+    def _is_xliff_family(doc_a: ParsedDocument, doc_b: ParsedDocument) -> bool:
+        format_a = (doc_a.format_name or "").upper()
+        format_b = (doc_b.format_name or "").upper()
+        return "XLIFF" in format_a and "XLIFF" in format_b
+
+    @staticmethod
     def _is_sdlxliff(doc_a: ParsedDocument, doc_b: ParsedDocument) -> bool:
         return (
             (doc_a.format_name or "").upper() == "SDLXLIFF"
@@ -232,6 +238,7 @@ class DiffEngine:
     @staticmethod
     def compare(doc_a: ParsedDocument, doc_b: ParsedDocument) -> ComparisonResult:
         strict_id_mode = DiffEngine._is_sdlxliff(doc_a, doc_b)
+        xliff_family_mode = DiffEngine._is_xliff_family(doc_a, doc_b)
         match_result = SegmentMatcher.match(
             doc_a, doc_b, allow_fuzzy=not strict_id_mode
         )
@@ -253,8 +260,10 @@ class DiffEngine:
 
             similarity = SequenceMatcher(None, seg_a.target, seg_b.target).ratio()
             text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target)
+            keep_xliff_id_pair_as_modified = xliff_family_mode and seg_a.id == seg_b.id
             keep_as_modified = (
                 strict_id_mode
+                or keep_xliff_id_pair_as_modified
                 or similarity >= SIMILARITY_THRESHOLD
                 or TextDiffer.has_only_non_word_or_case_changes(
                     seg_a.target, seg_b.target
