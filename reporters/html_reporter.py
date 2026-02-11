@@ -152,7 +152,7 @@ class HtmlReporter(BaseReporter):
                     "source": self._escape(source or ""),
                     "old_target": self._render_old_target(change),
                     "new_target": self._render_new_target(change),
-                    "change_type": change.type.value.lower(),
+                    "row_state": "changed" if is_changed else "unchanged",
                     "is_changed": is_changed,
                 }
             )

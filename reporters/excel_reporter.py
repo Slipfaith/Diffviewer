@@ -98,7 +98,7 @@ class ExcelReporter(BaseReporter):
             headers = ["#", "File Pair", "File A", "File B", "Segment ID"]
             if show_source:
                 headers.append("Source")
-            headers.extend(["Old Target", "New Target", "Type"])
+            headers.extend(["Old Target", "New Target"])
             report_ws.write_row(0, 0, headers, header_format)
 
             col_index = 0
@@ -110,25 +110,21 @@ class ExcelReporter(BaseReporter):
                 col_source: int | None = 5
                 col_old = 6
                 col_new = 7
-                col_type = 8
                 report_ws.set_column(0, 0, 6)
                 report_ws.set_column(1, 1, 34)
                 report_ws.set_column(2, 3, 24)
                 report_ws.set_column(4, 4, 18)
                 report_ws.set_column(5, 5, 30)
                 report_ws.set_column(6, 7, 46)
-                report_ws.set_column(8, 8, 12)
             else:
                 col_source = None
                 col_old = 5
                 col_new = 6
-                col_type = 7
                 report_ws.set_column(0, 0, 6)
                 report_ws.set_column(1, 1, 34)
                 report_ws.set_column(2, 3, 24)
                 report_ws.set_column(4, 4, 18)
                 report_ws.set_column(5, 6, 46)
-                report_ws.set_column(7, 7, 12)
             report_ws.freeze_panes(1, 0)
 
             all_changes = []
@@ -160,18 +156,13 @@ class ExcelReporter(BaseReporter):
                         self._write_text(report_ws, row, col_source, source, row_format)
                     self._write_text(report_ws, row, col_old, old_target, row_format)
                     self._write_text(report_ws, row, col_new, new_target, row_format)
-                    self._write_text(report_ws, row, col_type, change.type.value, row_format)
                     if change.type == ChangeType.UNCHANGED:
                         report_ws.set_row(row, None, None, {"hidden": True})
                     row += 1
                     sequence += 1
 
             end_row = max(1, row - 1)
-            report_ws.autofilter(0, 0, end_row, col_type)
-            report_ws.filter_column_list(
-                col_type,
-                ["ADDED", "DELETED", "MODIFIED", "MOVED"],
-            )
+            report_ws.autofilter(0, 0, end_row, col_new)
 
             statistics = ChangeStatistics.from_changes(all_changes)
             stats_labels = [
@@ -328,7 +319,7 @@ class ExcelReporter(BaseReporter):
             headers = ["#", "Segment ID"]
             if show_source:
                 headers.append("Source")
-            headers.extend(["Old Target", "New Target", "Type"])
+            headers.extend(["Old Target", "New Target"])
             report_ws.write_row(0, 0, headers, header_format)
             col_index = 0
             col_segment = 1
@@ -336,28 +327,20 @@ class ExcelReporter(BaseReporter):
                 col_source: int | None = 2
                 col_old = 3
                 col_new = 4
-                col_type = 5
                 report_ws.set_column(0, 0, 6)
                 report_ws.set_column(1, 1, 15)
                 report_ws.set_column(2, 2, 30)
                 report_ws.set_column(3, 4, 45)
-                report_ws.set_column(5, 5, 12)
             else:
                 col_source = None
                 col_old = 2
                 col_new = 3
-                col_type = 4
                 report_ws.set_column(0, 0, 6)
                 report_ws.set_column(1, 1, 15)
                 report_ws.set_column(2, 3, 45)
-                report_ws.set_column(4, 4, 12)
             report_ws.freeze_panes(1, 0)
             end_row = max(0, len(data.get("changes", [])))
-            report_ws.autofilter(0, 0, end_row, col_type)
-            report_ws.filter_column_list(
-                col_type,
-                ["ADDED", "DELETED", "MODIFIED", "MOVED"],
-            )
+            report_ws.autofilter(0, 0, end_row, col_new)
 
             for index, change in enumerate(data.get("changes", []), start=1):
                 row = index
@@ -440,7 +423,6 @@ class ExcelReporter(BaseReporter):
                         row_format,
                     )
 
-                self._write_text(report_ws, row, col_type, change_type.value, row_format)
                 if change_type == ChangeType.UNCHANGED:
                     report_ws.set_row(row, None, None, {"hidden": True})
 

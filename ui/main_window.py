@@ -1158,6 +1158,26 @@ QListWidget#fileTileList {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 6px;
+  selection-background-color: transparent;
+  selection-color: #1f2933;
+  outline: 0;
+}
+QListWidget#fileTileList::item {
+  background: transparent;
+  border: none;
+  margin: 0;
+  padding: 0;
+  show-decoration-selected: 0;
+}
+QListWidget#fileTileList::item:selected,
+QListWidget#fileTileList::item:selected:active,
+QListWidget#fileTileList::item:selected:inactive {
+  background: transparent;
+  border: none;
+  color: #1f2933;
+}
+QListWidget#fileTileList::item:hover {
+  background: transparent;
 }
 QLabel#fileTileHint {
   color: #64748b;

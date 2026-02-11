@@ -8,6 +8,7 @@ import openpyxl
 import pytest
 from openpyxl.utils import column_index_from_string
 
+from core.diff_engine import DiffEngine
 from core.models import (
     ChangeRecord,
     ChangeStatistics,
@@ -95,7 +96,7 @@ def test_excel_reporter_generates_file(tmp_path: Path) -> None:
 
     report_ws = workbook["Report"]
     assert report_ws.max_row == len(changes) + 1
-    assert report_ws.max_column == 5
+    assert report_ws.max_column == 4
 
     stats_ws = workbook["Statistics"]
     assert stats_ws.max_row >= 5
@@ -119,7 +120,6 @@ def test_excel_reporter_column_widths(tmp_path: Path) -> None:
         "B": 15,
         "C": 45,
         "D": 45,
-        "E": 12,
     }
 
     width_map: dict[int, float] = {}
@@ -162,7 +162,7 @@ def test_excel_reporter_shows_source_column_when_present(tmp_path: Path) -> None
     output_file = reporter.generate(result, str(tmp_path / "with_source.xlsx"))
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
-    assert ws.max_column == 6
+    assert ws.max_column == 5
     assert ws["C1"].value == "Source"
     assert ws["C2"].value == "Hello"
     assert ws["D2"].value == "Hola"
@@ -293,7 +293,7 @@ def test_excel_reporter_hides_unchanged_by_default(tmp_path: Path) -> None:
     output_file = reporter.generate(result, str(tmp_path / "hidden.xlsx"))
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
-    assert ws.auto_filter.ref == "A1:E2"
+    assert ws.auto_filter.ref == "A1:D2"
     assert ws.row_dimensions[2].hidden is True
 
 
@@ -412,3 +412,23 @@ def test_excel_reporter_does_not_warn_on_two_fragment_rich_case(
     workbook = openpyxl.load_workbook(output_file)
     ws = workbook["Report"]
     assert ws["D2"].value == "ac"
+
+
+def test_excel_reporter_merges_same_source_change_into_single_row(tmp_path: Path) -> None:
+    source_text = "Shared source"
+    seg_before = make_segment("100", "Completely old target", source=source_text)
+    seg_after = make_segment("200", "Completely new target", source=source_text)
+    result = DiffEngine.compare(
+        make_doc("a.xliff", [seg_before]),
+        make_doc("b.xliff", [seg_after]),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "single_row.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    assert ws.max_row == 2
+    assert ws["C2"].value == "Shared source"
+    assert ws["D2"].value == "Completely old target"
+    assert ws["E2"].value == "Completely new target"

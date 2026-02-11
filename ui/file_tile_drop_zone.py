@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Iterable
 
@@ -184,6 +185,7 @@ class FileTileDropZone(QFrame):
 
         self.list_widget = _FileTileListWidget(self)
         self.list_widget.setObjectName("fileTileList")
+        self.list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.list_widget.setSelectionMode(
             QListWidget.SelectionMode.ExtendedSelection
         )
@@ -225,18 +227,27 @@ class FileTileDropZone(QFrame):
         self._sync_hint_geometry()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._is_internal_drag(event):
+            event.ignore()
+            return
         if self._extract_valid_paths(event):
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dragMoveEvent(self, event) -> None:  # type: ignore[override]
+        if self._is_internal_drag(event):
+            event.ignore()
+            return
         if self._extract_valid_paths(event):
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dropEvent(self, event: QDropEvent) -> None:
+        if self._is_internal_drag(event):
+            event.ignore()
+            return
         paths = self._extract_valid_paths(event)
         if not paths:
             event.ignore()
@@ -264,7 +275,7 @@ class FileTileDropZone(QFrame):
         return super().eventFilter(watched, event)
 
     def add_files(self, paths: Iterable[str]) -> None:
-        existing = set(self.file_paths())
+        existing = {self._path_key(path) for path in self.file_paths()}
         added = False
         for raw_path in paths:
             normalized = self._normalize_path(raw_path)
@@ -278,7 +289,8 @@ class FileTileDropZone(QFrame):
             )
             for file_path in files_to_add:
                 file_path_str = str(file_path)
-                if file_path_str in existing:
+                path_key = self._path_key(file_path_str)
+                if path_key in existing:
                     continue
                 item = QListWidgetItem()
                 item.setSizeHint(self._tile_size_hint())
@@ -288,16 +300,20 @@ class FileTileDropZone(QFrame):
                 widget = _FileTileWidget(file_path.name, self.list_widget)
                 self.list_widget.addItem(item)
                 self.list_widget.setItemWidget(item, widget)
-                existing.add(file_path_str)
+                existing.add(path_key)
                 added = True
 
         if added:
             self._emit_changed()
 
     def remove_file(self, file_path: str) -> None:
+        target_key = self._path_key(file_path)
         for row in range(self.list_widget.count()):
             item = self.list_widget.item(row)
-            if item.data(Qt.ItemDataRole.UserRole) == file_path:
+            item_path = item.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(item_path, str):
+                continue
+            if self._path_key(item_path) == target_key:
                 self.list_widget.takeItem(row)
                 self._emit_changed()
                 return
@@ -367,17 +383,36 @@ class FileTileDropZone(QFrame):
         self.hint_label.resize(self.list_widget.viewport().size())
 
     def _extract_valid_paths(self, event) -> list[str]:
+        if self._is_internal_drag(event):
+            return []
         mime_data = event.mimeData()
         if not mime_data.hasUrls():
             return []
 
         paths: list[str] = []
+        seen: set[str] = set()
         for url in mime_data.urls():
             local = url.toLocalFile()
             normalized = self._normalize_path(local)
-            if normalized is not None:
-                paths.append(normalized)
+            if normalized is None:
+                continue
+            key = self._path_key(normalized)
+            if key in seen:
+                continue
+            seen.add(key)
+            paths.append(normalized)
         return paths
+
+    @staticmethod
+    def _path_key(path: str) -> str:
+        return os.path.normcase(os.path.normpath(path))
+
+    @staticmethod
+    def _is_internal_drag(event) -> bool:
+        source_getter = getattr(event, "source", None)
+        if not callable(source_getter):
+            return False
+        return isinstance(source_getter(), _FileTileListWidget)
 
     def _normalize_path(self, path: str) -> str | None:
         if not path:

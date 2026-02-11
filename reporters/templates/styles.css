@@ -163,10 +163,6 @@ body {
   width: 28%;
 }
 
-.col-type {
-  width: 96px;
-}
-
 .report-table th {
   text-align: left;
   background: #f3f4f6;
@@ -174,40 +170,12 @@ body {
   color: #374151;
 }
 
-.row-added {
-  background: #ecfdf3;
-}
-
-.row-deleted {
-  background: #fef2f2;
-}
-
-.row-modified {
+.row-changed {
   background: #fffbeb;
 }
 
 .row-unchanged {
   background: #f8fafc;
-}
-
-.row-added .type-cell {
-  color: #15803d;
-  font-weight: 600;
-}
-
-.row-deleted .type-cell {
-  color: #b91c1c;
-  font-weight: 600;
-}
-
-.row-modified .type-cell {
-  color: #b45309;
-  font-weight: 600;
-}
-
-.row-unchanged .type-cell {
-  color: #475569;
-  font-weight: 600;
 }
 
 del {

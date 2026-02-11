@@ -149,12 +149,11 @@ class SummaryReporter:
                         row_format,
                     )
 
-            changes_headers = ["File", "Segment ID", "Type", "Source", "Old Target", "New Target"]
+            changes_headers = ["File", "Segment ID", "Source", "Old Target", "New Target"]
             changes_ws.write_row(0, 0, changes_headers, header)
             changes_ws.set_column(0, 0, 36)
             changes_ws.set_column(1, 1, 18)
-            changes_ws.set_column(2, 2, 12)
-            changes_ws.set_column(3, 5, 48)
+            changes_ws.set_column(2, 4, 48)
             changes_ws.freeze_panes(1, 0)
 
             row = 1
@@ -171,7 +170,6 @@ class SummaryReporter:
                     values = [
                         item.filename,
                         segment_id,
-                        change.type.value,
                         source or "",
                         old_target,
                         new_target,

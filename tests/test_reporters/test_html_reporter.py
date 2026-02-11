@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.diff_engine import DiffEngine
 from core.models import (
     ChangeRecord,
     ChangeStatistics,
@@ -111,6 +112,12 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
     assert 'class="col-source"' not in output_content
     assert 'class="col-old-target"' in output_content
     assert 'class="col-new-target"' in output_content
+    assert ">Type<" not in output_content
+    assert "data-type=" not in output_content
+    assert 'data-filter="added"' not in output_content
+    assert 'data-filter="deleted"' not in output_content
+    assert 'data-filter="modified"' not in output_content
+    assert 'data-filter="unchanged"' not in output_content
 
 
 def test_html_reporter_empty_result(tmp_path: Path) -> None:
@@ -309,3 +316,24 @@ def test_html_reporter_generates_multi_report_with_file_filter(tmp_path: Path) -
     assert 'data-file="file-1"' in output_content
     assert 'data-file="file-2"' in output_content
     assert ">File Pair<" in output_content
+
+
+def test_html_reporter_merges_same_source_change_into_single_row(tmp_path: Path) -> None:
+    source_text = "Shared source"
+    seg_before = make_segment("100", "Completely old target", source=source_text)
+    seg_after = make_segment("200", "Completely new target", source=source_text)
+    result = DiffEngine.compare(
+        make_doc("a.xliff", [seg_before]),
+        make_doc("b.xliff", [seg_after]),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(reporter.generate(result, str(tmp_path / "single_row.html")))
+    output_content = output_path.read_text(encoding="utf-8")
+
+    assert output_content.count('class="row-changed') == 1
+    assert output_content.count(">Shared source<") == 1
+    assert "<del>" in output_content
+    assert "<ins>" in output_content
+    assert "Completely" in output_content
+    assert "target" in output_content

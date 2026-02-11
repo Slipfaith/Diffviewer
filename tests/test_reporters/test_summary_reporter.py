@@ -1,9 +1,23 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
-from core.models import MultiVersionResult, ParsedDocument, Segment, SegmentContext
+import openpyxl
+
+from core.models import (
+    BatchFileResult,
+    BatchResult,
+    ChangeRecord,
+    ChangeStatistics,
+    ChangeType,
+    ComparisonResult,
+    MultiVersionResult,
+    ParsedDocument,
+    Segment,
+    SegmentContext,
+)
 from reporters.summary_reporter import SummaryReporter
 
 
@@ -81,3 +95,56 @@ def test_summary_reporter_fills_targets_by_source_when_ids_change(tmp_path: Path
     assert "Target two v2" in plain
     assert "Target two v3" in plain
     assert "<td class=\"state-missing\"></td>" not in text
+
+
+def test_summary_reporter_batch_excel_all_changes_has_no_type_column(tmp_path: Path) -> None:
+    seg_before = _segment("1", "Shared source", "Old target", 1)
+    seg_after = _segment("2", "Shared source", "New target", 1)
+    comparison = ComparisonResult(
+        file_a=_doc("a.xliff", [seg_before]),
+        file_b=_doc("b.xliff", [seg_after]),
+        changes=[
+            ChangeRecord(
+                type=ChangeType.MODIFIED,
+                segment_before=seg_before,
+                segment_after=seg_after,
+                text_diff=[],
+                similarity=0.0,
+                context=seg_after.context,
+            )
+        ],
+        statistics=ChangeStatistics(
+            total_segments=1,
+            added=0,
+            deleted=0,
+            modified=1,
+            moved=0,
+            unchanged=0,
+            change_percentage=1.0,
+        ),
+        timestamp=datetime.now(),
+    )
+    batch = BatchResult(
+        folder_a="a",
+        folder_b="b",
+        files=[
+            BatchFileResult(
+                filename="file.xliff",
+                status="compared",
+                report_paths=[],
+                statistics=comparison.statistics,
+                comparison=comparison,
+            )
+        ],
+    )
+
+    output = SummaryReporter().generate_batch_excel(batch, str(tmp_path / "batch.xlsx"))
+    workbook = openpyxl.load_workbook(output)
+    ws = workbook["All Changes"]
+
+    headers = [cell.value for cell in ws[1]]
+    assert headers == ["File", "Segment ID", "Source", "Old Target", "New Target"]
+    assert ws.max_row == 2
+    assert ws["C2"].value == "Shared source"
+    assert ws["D2"].value == "Old target"
+    assert ws["E2"].value == "New target"

@@ -190,3 +190,23 @@ def test_sdlxliff_does_not_fuzzy_match_different_ids() -> None:
     assert result.statistics.added == 1
     assert result.statistics.deleted == 1
     assert all(change.type != ChangeType.MODIFIED for change in result.changes)
+
+
+def test_same_source_with_different_ids_is_single_modified_change() -> None:
+    source = "The same source segment"
+    seg_a = make_segment("101", "Old target value", 1)
+    seg_a.source = source
+    seg_b = make_segment("202", "New target value", 1)
+    seg_b.source = source
+
+    doc_a = make_doc([seg_a], name="TXT")
+    doc_b = make_doc([seg_b], name="TXT")
+
+    result = DiffEngine.compare(doc_a, doc_b)
+
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert result.statistics.modified == 1
+    assert result.statistics.added == 0
+    assert result.statistics.deleted == 0

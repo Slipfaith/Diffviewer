@@ -7,11 +7,13 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PyQt6.QtCore import QMimeData, QUrl
 from PyQt6.QtWidgets import QApplication
 
 from core.models import ChangeStatistics, ComparisonResult, ParsedDocument
 from ui.comparison_worker import ComparisonWorker
 from ui.file_drop_zone import FileDropZone
+from ui.file_tile_drop_zone import FileTileDropZone
 from ui.main_window import MainWindow
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -97,6 +99,60 @@ def test_excel_source_row_visibility_for_excel_files(app: QApplication) -> None:
 
     window.file_a_zone.clear_files()
     assert window.excel_source_options_widget.isHidden() is True
+    window.close()
+
+
+def test_file_tile_drop_zone_ignores_internal_drag(app: QApplication, tmp_path: Path) -> None:
+    zone = FileTileDropZone("Test Zone", allowed_extensions=[".txt"])
+    sample = tmp_path / "sample.txt"
+    sample.write_text("content", encoding="utf-8")
+    zone.add_files([str(sample)])
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(sample))])
+
+    class _Event:
+        def __init__(self, source, mime_data):
+            self._source = source
+            self._mime_data = mime_data
+
+        def source(self):
+            return self._source
+
+        def mimeData(self):
+            return self._mime_data
+
+    internal_paths = zone._extract_valid_paths(_Event(zone.list_widget, mime))
+    external_paths = zone._extract_valid_paths(_Event(None, mime))
+
+    assert internal_paths == []
+    assert len(external_paths) == 1
+    zone.close()
+
+
+def test_main_window_manual_pairing_does_not_duplicate_right_list(
+    app: QApplication, tmp_path: Path
+) -> None:
+    file_a = tmp_path / "left.txt"
+    file_b = tmp_path / "right.txt"
+    file_a.write_text("a", encoding="utf-8")
+    file_b.write_text("b", encoding="utf-8")
+
+    window = MainWindow()
+    window.file_a_zone.add_files([str(file_a)])
+    window.file_b_zone.add_files([str(file_b)])
+
+    left_path = window.file_a_zone.file_paths()[0]
+    right_before = list(window.file_b_zone.file_paths())
+    right_path = right_before[0]
+
+    window._on_file_a_tile_clicked(left_path)
+    window._on_file_b_tile_clicked(right_path)
+
+    right_after = window.file_b_zone.file_paths()
+    assert right_after == right_before
+    assert len(right_after) == 1
+    assert window.manual_file_pairs[left_path] == right_path
     window.close()
 
 

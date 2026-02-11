@@ -49,10 +49,6 @@
     <div class="filter-group">
       <button class="filter-btn active" data-filter="changed">Changed</button>
       <button class="filter-btn" data-filter="all">Show All</button>
-      <button class="filter-btn" data-filter="added">Added</button>
-      <button class="filter-btn" data-filter="deleted">Deleted</button>
-      <button class="filter-btn" data-filter="modified">Modified</button>
-      <button class="filter-btn" data-filter="unchanged">Unchanged</button>
     </div>
     {% if multi_mode %}
     <div class="filter-group file-filter-group">
@@ -79,7 +75,6 @@
       {% endif %}
       <col class="col-old-target">
       <col class="col-new-target">
-      <col class="col-type">
     </colgroup>
     <thead>
       <tr>
@@ -93,12 +88,11 @@
         {% endif %}
         <th>Old Target</th>
         <th>New Target</th>
-        <th>Type</th>
       </tr>
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr class="row-{{ row.change_type }}{% if not row.is_changed %} hidden{% endif %}" data-type="{{ row.change_type }}" data-file="{{ row.file_key }}">
+      <tr class="row-{{ row.row_state }}{% if not row.is_changed %} hidden{% endif %}" data-changed="{% if row.is_changed %}1{% else %}0{% endif %}" data-file="{{ row.file_key }}">
         <td>{{ row.index }}</td>
         {% if multi_mode %}
         <td class="file-cell">{{ row.file_label }}</td>
@@ -109,7 +103,6 @@
         {% endif %}
         <td class="diff-cell old-target">{{ row.old_target|safe }}</td>
         <td class="diff-cell new-target">{{ row.new_target|safe }}</td>
-        <td class="type-cell">{{ row.change_type }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -121,7 +114,6 @@
     const rows = document.querySelectorAll('tbody tr');
     const fileFilter = document.getElementById('file-filter');
     const emptyState = document.getElementById('empty-state');
-    const changedTypes = new Set(['added', 'deleted', 'modified', 'moved']);
     let currentTypeFilter = 'changed';
     let currentFileFilter = fileFilter ? fileFilter.value : 'all';
 
@@ -130,14 +122,11 @@
       button.classList.add('active');
     }
 
-    function isTypeVisible(row, filter) {
+    function isChangedVisible(row, filter) {
       if (filter === 'all') {
         return true;
       }
-      if (filter === 'changed') {
-        return changedTypes.has(row.dataset.type);
-      }
-      return row.dataset.type === filter;
+      return row.dataset.changed === '1';
     }
 
     function isFileVisible(row, fileFilterValue) {
@@ -150,7 +139,7 @@
     function applyFilters() {
       let visibleCount = 0;
       rows.forEach((row) => {
-        const visibleByType = isTypeVisible(row, currentTypeFilter);
+        const visibleByType = isChangedVisible(row, currentTypeFilter);
         const visibleByFile = isFileVisible(row, currentFileFilter);
         const isVisible = visibleByType && visibleByFile;
         row.classList.toggle('hidden', !isVisible);

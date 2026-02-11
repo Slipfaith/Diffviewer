@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from collections import deque
 import re
 from typing import Iterable
 
@@ -223,6 +224,54 @@ class TextDiffer:
 
 class DiffEngine:
     @staticmethod
+    def _normalize_source(source: str | None) -> str:
+        return " ".join((source or "").casefold().split())
+
+    @classmethod
+    def _sources_match(cls, source_a: str | None, source_b: str | None) -> bool:
+        normalized_a = cls._normalize_source(source_a)
+        normalized_b = cls._normalize_source(source_b)
+        return bool(normalized_a and normalized_b and normalized_a == normalized_b)
+
+    @classmethod
+    def _pair_unmatched_by_source(cls, match_result: MatchResult) -> MatchResult:
+        if not match_result.unmatched_a or not match_result.unmatched_b:
+            return match_result
+
+        by_source_b: dict[str, deque[Segment]] = {}
+        for segment in match_result.unmatched_b:
+            source_key = cls._normalize_source(segment.source)
+            if source_key:
+                by_source_b.setdefault(source_key, deque()).append(segment)
+
+        source_pairs: list[tuple[Segment, Segment]] = []
+        for segment_a in match_result.unmatched_a:
+            source_key = cls._normalize_source(segment_a.source)
+            if not source_key:
+                continue
+            candidates = by_source_b.get(source_key)
+            if not candidates:
+                continue
+            source_pairs.append((segment_a, candidates.popleft()))
+
+        if not source_pairs:
+            return match_result
+
+        paired_a_ids = {id(segment_a) for segment_a, _ in source_pairs}
+        paired_b_ids = {id(segment_b) for _, segment_b in source_pairs}
+        unmatched_a = [
+            segment for segment in match_result.unmatched_a if id(segment) not in paired_a_ids
+        ]
+        unmatched_b = [
+            segment for segment in match_result.unmatched_b if id(segment) not in paired_b_ids
+        ]
+        return MatchResult(
+            pairs=match_result.pairs + source_pairs,
+            unmatched_a=unmatched_a,
+            unmatched_b=unmatched_b,
+        )
+
+    @staticmethod
     def _is_xliff_family(doc_a: ParsedDocument, doc_b: ParsedDocument) -> bool:
         format_a = (doc_a.format_name or "").upper()
         format_b = (doc_b.format_name or "").upper()
@@ -242,6 +291,7 @@ class DiffEngine:
         match_result = SegmentMatcher.match(
             doc_a, doc_b, allow_fuzzy=not strict_id_mode
         )
+        match_result = DiffEngine._pair_unmatched_by_source(match_result)
         changes: list[ChangeRecord] = []
 
         for seg_a, seg_b in match_result.pairs:
@@ -264,6 +314,7 @@ class DiffEngine:
             keep_as_modified = (
                 strict_id_mode
                 or keep_xliff_id_pair_as_modified
+                or DiffEngine._sources_match(seg_a.source, seg_b.source)
                 or similarity >= SIMILARITY_THRESHOLD
                 or TextDiffer.has_only_non_word_or_case_changes(
                     seg_a.target, seg_b.target
