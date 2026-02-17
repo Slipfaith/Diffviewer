@@ -16,6 +16,7 @@ from core.models import (
     MultiVersionResult,
     Segment,
 )
+from core.utils import decode_html_entities
 
 
 class SummaryReporter:
@@ -142,10 +143,14 @@ class SummaryReporter:
                     html_report or item.error_message or "",
                 ]
                 for col_index, value in enumerate(values):
+                    text = "" if value is None else str(value)
                     summary_ws.write_string(
                         row_index,
                         col_index,
-                        "" if value is None else str(value),
+                        decode_html_entities(
+                            text,
+                            decode_single_encoded=False,
+                        ),
                         row_format,
                     )
 
@@ -175,10 +180,14 @@ class SummaryReporter:
                         new_target,
                     ]
                     for col_index, value in enumerate(values):
+                        text = "" if value is None else str(value)
                         changes_ws.write_string(
                             row,
                             col_index,
-                            "" if value is None else str(value),
+                            decode_html_entities(
+                                text,
+                                decode_single_encoded=False,
+                            ),
                             wrap,
                         )
                     row += 1
@@ -803,8 +812,9 @@ class SummaryReporter:
 
     @staticmethod
     def _escape(value: str) -> str:
+        clean = decode_html_entities(value, decode_single_encoded=False)
         return (
-            value.replace("&", "&amp;")
+            clean.replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace('"', "&quot;")
@@ -812,12 +822,18 @@ class SummaryReporter:
 
     @staticmethod
     def _escape_multiline(value: str) -> str:
-        return html.escape(value, quote=True).replace("\n", "<br>")
+        return html.escape(
+            decode_html_entities(value, decode_single_encoded=False),
+            quote=False,
+        ).replace("\n", "<br>")
 
     @staticmethod
     def _escape_changed_text(value: str) -> str:
         return (
-            html.escape(value, quote=True)
+            html.escape(
+                decode_html_entities(value, decode_single_encoded=False),
+                quote=False,
+            )
             .replace(" ", "&middot;")
             .replace("\n", "<br>")
         )

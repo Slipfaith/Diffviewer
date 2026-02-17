@@ -3,6 +3,7 @@ from __future__ import annotations
 from lxml import etree
 
 from core.models import ParsedDocument, ParseError, Segment, SegmentContext
+from core.utils import decode_html_entities
 from parsers.xliff_base import BaseXliffParser, _first_child_text, _local_name
 
 
@@ -42,11 +43,15 @@ class MemoQXliffParser(BaseXliffParser):
                 ".//*[local-name()='context' and @context-type='x-mmq-structural-context']"
             )
             if context_nodes:
-                metadata["context"] = "".join(context_nodes[0].itertext()).strip()
+                metadata["context"] = decode_html_entities(
+                    "".join(context_nodes[0].itertext()).strip()
+                )
 
             note_nodes = unit.xpath(".//*[local-name()='note']")
             if note_nodes:
-                metadata["note"] = "".join(note_nodes[0].itertext()).strip()
+                metadata["note"] = decode_html_entities(
+                    "".join(note_nodes[0].itertext()).strip()
+                )
 
             context = SegmentContext(
                 file_path=filepath,

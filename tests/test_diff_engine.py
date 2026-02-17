@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.diff_engine import DiffEngine
+from core.diff_engine import DiffEngine, TextDiffer
 from core.models import ChangeType, ChunkType, ParsedDocument, Segment, SegmentContext
 
 
@@ -62,15 +62,28 @@ def test_modified_segment_with_text_diff() -> None:
     assert any(chunk.type != ChunkType.EQUAL for chunk in change.text_diff)
 
 
-def test_similarity_below_threshold_becomes_added_deleted() -> None:
+def test_same_id_low_similarity_stays_modified() -> None:
     doc_a = make_doc([make_segment("1", "aaa", 1)])
     doc_b = make_doc([make_segment("1", "bbbbbbbbbbbbbbbbbbbb", 1)])
+
+    result = DiffEngine.compare(doc_a, doc_b)
+    assert result.statistics.modified == 1
+    assert result.statistics.added == 0
+    assert result.statistics.deleted == 0
+    change = result.changes[0]
+    assert change.type == ChangeType.MODIFIED
+    assert change.segment_before is not None
+    assert change.segment_after is not None
+
+
+def test_different_ids_low_similarity_becomes_added_deleted() -> None:
+    doc_a = make_doc([make_segment("1", "aaa", 1)])
+    doc_b = make_doc([make_segment("2", "bbbbbbbbbbbbbbbbbbbb", 1)])
 
     result = DiffEngine.compare(doc_a, doc_b)
     assert result.statistics.added == 1
     assert result.statistics.deleted == 1
     assert result.statistics.modified == 0
-    assert all(change.type != ChangeType.MODIFIED for change in result.changes)
 
 
 def test_xliff_same_id_low_similarity_stays_modified() -> None:
@@ -190,6 +203,44 @@ def test_sdlxliff_does_not_fuzzy_match_different_ids() -> None:
     assert result.statistics.added == 1
     assert result.statistics.deleted == 1
     assert all(change.type != ChangeType.MODIFIED for change in result.changes)
+
+
+def test_multiline_diff_preserves_unchanged_lines() -> None:
+    old_text = "Line 1\nLine 2\nLine 3\nLine 4"
+    new_text = "Line 1\nLine 2 modified\nLine 3\nLine 4 changed"
+    chunks = TextDiffer.diff_auto(old_text, new_text)
+    equal_text = "".join(c.text for c in chunks if c.type == ChunkType.EQUAL)
+    assert "Line 1" in equal_text
+    assert "Line 3" in equal_text
+    assert "Line 2" in equal_text
+    delete_text = "".join(c.text for c in chunks if c.type == ChunkType.DELETE)
+    insert_text = "".join(c.text for c in chunks if c.type == ChunkType.INSERT)
+    assert "modified" in insert_text
+    assert "changed" in insert_text
+    assert "Line 1" not in delete_text
+    assert "Line 3" not in delete_text
+
+
+def test_multiline_diff_large_block_not_full_replacement() -> None:
+    old_text = (
+        "Introduction paragraph.\n"
+        "1. First item\n"
+        "2. Second item\n"
+        "3. Third item\n"
+        "Conclusion text."
+    )
+    new_text = (
+        "Introduction paragraph.\n"
+        "1. First item updated\n"
+        "2. Second item\n"
+        "3. Third item revised\n"
+        "Conclusion text."
+    )
+    chunks = TextDiffer.diff_auto(old_text, new_text)
+    equal_text = "".join(c.text for c in chunks if c.type == ChunkType.EQUAL)
+    assert "Introduction paragraph." in equal_text
+    assert "2. Second item" in equal_text
+    assert "Conclusion text." in equal_text
 
 
 def test_same_source_with_different_ids_is_single_modified_change() -> None:

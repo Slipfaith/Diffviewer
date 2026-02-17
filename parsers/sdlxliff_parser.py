@@ -5,6 +5,7 @@ from pathlib import Path
 from lxml import etree
 
 from core.models import ParsedDocument, ParseError, Segment, SegmentContext
+from core.utils import decode_html_entities
 from parsers.xliff_base import BaseXliffParser
 
 
@@ -13,7 +14,7 @@ def _iter_mrk_segments(element: etree._Element) -> list[etree._Element]:
 
 
 def _extract_text(node: etree._Element) -> str:
-    return "".join(node.itertext())
+    return decode_html_entities("".join(node.itertext()))
 
 
 class SdlXliffParser(BaseXliffParser):

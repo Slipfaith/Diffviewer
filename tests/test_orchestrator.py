@@ -46,6 +46,65 @@ def test_orchestrator_txt(tmp_path: Path) -> None:
     assert html_file.stem == excel_file.stem
 
 
+def test_orchestrator_txt_preserves_literal_entities_in_report(tmp_path: Path) -> None:
+    file_a = tmp_path / "a.txt"
+    file_b = tmp_path / "b.txt"
+    file_a.write_text("Don&#39;t old\n", encoding="utf-8")
+    file_b.write_text("Don&#39;t new\n", encoding="utf-8")
+
+    orchestrator = Orchestrator()
+    outputs = orchestrator.compare_files(str(file_a), str(file_b), str(tmp_path))
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    html_content = html_file.read_text(encoding="utf-8")
+
+    assert "Don&amp;#39;t" in html_content
+    assert "Don't" not in html_content
+
+
+def test_orchestrator_non_text_decodes_entities_in_report(tmp_path: Path) -> None:
+    file_a = tmp_path / "a.xliff"
+    file_b = tmp_path / "b.xliff"
+    file_a.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="en" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1">
+        <source>Don&amp;#39;t</source>
+        <target>Old value</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
+""",
+        encoding="utf-8",
+    )
+    file_b.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="en" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1">
+        <source>Don&amp;#39;t</source>
+        <target>New value</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
+""",
+        encoding="utf-8",
+    )
+
+    orchestrator = Orchestrator()
+    outputs = orchestrator.compare_files(str(file_a), str(file_b), str(tmp_path))
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    html_content = html_file.read_text(encoding="utf-8")
+
+    assert "Don't" in html_content
+    assert "&#39;" not in html_content
+    assert "&amp;#39;" not in html_content
+
+
 def test_orchestrator_xlsx_with_source_columns(tmp_path: Path) -> None:
     orchestrator = Orchestrator()
     outputs = orchestrator.compare_files(

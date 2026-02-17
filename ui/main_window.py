@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QButtonGroup,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -27,6 +29,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QStackedWidget,
     QStatusBar,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -204,15 +207,57 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_dialog)
 
     def _show_help_dialog(self) -> None:
-        text = (
-            "Diff View помогает сравнивать файлы и проверять изменения переводов.\n\n"
-            "Основные возможности:\n"
-            "1. File vs File: сравнение пар файлов с отчетами HTML/XLSX.\n"
-            "2. Multi-Version: сводное сравнение нескольких версий файла.\n"
-            "3. QA Verify: проверка применения QA-правок TP/FP.\n\n"
-            "from Sha by slipfaith."
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Справка")
+        dialog.setMinimumSize(520, 420)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        browser = QTextBrowser(dialog)
+        browser.setOpenExternalLinks(False)
+        browser.setHtml(
+            '<h2 style="margin-bottom:8px;">Diff View</h2>'
+            "<p>Инструмент для сравнения файлов переводов и проверки изменений.</p>"
+            "<hr>"
+            '<h3 style="margin-bottom:4px;">File vs File</h3>'
+            "<p>Сравнение пар файлов между собой.</p>"
+            "<ul>"
+            "<li>Перетащите файлы в зоны <b>File A</b> и <b>File B</b>.</li>"
+            "<li>Файлы с одинаковым именем спариваются автоматически. "
+            "Для ручной привязки кликните по тайлу в A, затем по тайлу в B.</li>"
+            "<li>Все файлы должны быть спарены для запуска сравнения.</li>"
+            "<li>Результат: отчёты HTML и Excel с подсветкой различий.</li>"
+            "</ul>"
+            "<hr>"
+            '<h3 style="margin-bottom:4px;">Multi-Version</h3>'
+            "<p>Сравнение нескольких версий одного файла по цепочке.</p>"
+            "<ul>"
+            "<li>Добавьте 2+ файла; порядок задаёт версионность.</li>"
+            "<li>Перетаскивайте файлы в списке для изменения порядка.</li>"
+            "<li>Результат: сводный HTML-отчёт по всем парам (1→2, 2→3, ...).</li>"
+            "</ul>"
+            "<hr>"
+            '<h3 style="margin-bottom:4px;">QA Verify</h3>'
+            "<p>Проверка применения QA-правок (TP/FP) в финальных файлах.</p>"
+            "<ul>"
+            "<li>Загрузите QA-отчёты (.xlsx) и финальные XLIFF-файлы.</li>"
+            "<li>Программа автоматически определит колонки. "
+            "Для корректировки нажмите <b>Column Mapping</b>.</li>"
+            "<li>Результат: статистика Applied / Not Applied / Cannot Verify "
+            "с возможностью экспорта в Excel.</li>"
+            "</ul>"
+            "<hr>"
+            '<p style="color:#64748b; font-size:11px;">Поддерживаемые форматы: '
+            "XLIFF, SDLXLIFF, MemoQ XLIFF, Excel, Word, PowerPoint, TXT, SRT.</p>"
         )
-        QMessageBox.information(self, "Справка", text)
+        layout.addWidget(browser, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, dialog)
+        buttons.accepted.connect(dialog.accept)
+        layout.addWidget(buttons)
+
+        dialog.exec()
 
     def _show_about_dialog(self) -> None:
         QMessageBox.information(
@@ -331,9 +376,9 @@ class MainWindow(QMainWindow):
         self.version_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.version_list.setAlternatingRowColors(True)
         self.version_list.files_dropped.connect(self._add_version_paths)
-        self.version_list.model().rowsInserted.connect(self._update_action_state)
-        self.version_list.model().rowsRemoved.connect(self._update_action_state)
-        self.version_list.model().rowsMoved.connect(self._update_action_state)
+        self.version_list.model().rowsInserted.connect(self._on_version_list_changed)
+        self.version_list.model().rowsRemoved.connect(self._on_version_list_changed)
+        self.version_list.model().rowsMoved.connect(self._on_version_list_changed)
         layout.addWidget(self.version_list, 1)
 
         buttons = QHBoxLayout()
@@ -485,6 +530,7 @@ class MainWindow(QMainWindow):
 
     def _set_mode(self, mode: str) -> None:
         self.current_mode = mode
+        self._reset_comparison_output()
         qa_mode = mode == self.MODE_QA_VERIFY
         self.output_controls.setVisible(not qa_mode)
         if mode == self.MODE_FILE:
@@ -500,10 +546,6 @@ class MainWindow(QMainWindow):
             self.mode_stack.setCurrentWidget(self.qa_verify_page)
             self.compare_btn.setText("Verify QA")
             self.qa_verify_mode_btn.setChecked(True)
-            self.open_html_btn.setVisible(False)
-            self.open_excel_btn.setVisible(False)
-            self.last_html_report = None
-            self.last_excel_report = None
         self._update_action_state()
 
     def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
@@ -522,10 +564,15 @@ class MainWindow(QMainWindow):
                     return True
         return super().eventFilter(watched, event)
 
+    def _on_version_list_changed(self) -> None:
+        self._reset_comparison_output()
+        self._update_action_state()
+
     def _on_file_lists_changed(self, _paths: list[str]) -> None:
         self._cleanup_file_pair_state()
         self._refresh_file_pairing_visuals()
         self._update_excel_source_controls_visibility()
+        self._reset_comparison_output()
         self._update_action_state()
 
     def _on_file_a_tile_clicked(self, file_path: str) -> None:
@@ -538,6 +585,7 @@ class MainWindow(QMainWindow):
             return
         self._set_manual_file_pair(self.pending_file_a, file_path)
         self.pending_file_a = None
+        self._reset_comparison_output()
         self._refresh_file_pairing_visuals()
         self._update_action_state()
 
@@ -992,6 +1040,12 @@ class MainWindow(QMainWindow):
             return
         QMessageBox.critical(self, "Comparison error", str(message))
 
+    def _reset_comparison_output(self) -> None:
+        self.last_html_report = None
+        self.last_excel_report = None
+        self.open_html_btn.setVisible(False)
+        self.open_excel_btn.setVisible(False)
+
     def _open_report(self, path: str | None) -> None:
         if not path:
             return
@@ -1036,7 +1090,11 @@ class MainWindow(QMainWindow):
         output_ok = bool(self.output_line.text().strip())
         enabled = False
         if self.current_mode == self.MODE_FILE:
-            enabled = bool(self._ordered_file_pairs() and output_ok)
+            files_a = self.file_a_zone.file_paths()
+            files_b = self.file_b_zone.file_paths()
+            pairs = self._ordered_file_pairs()
+            all_paired = len(pairs) > 0 and len(pairs) == len(files_a) == len(files_b)
+            enabled = bool(all_paired and output_ok)
         elif self.current_mode == self.MODE_VERSIONS:
             enabled = bool(self.version_list.count() >= 2 and output_ok)
         elif self.current_mode == self.MODE_QA_VERIFY:
@@ -1117,6 +1175,11 @@ QPushButton#compareButton {
   color: #ffffff;
   border-color: #1d4ed8;
   font-weight: 600;
+}
+QPushButton#compareButton:disabled {
+  background: #6b7280;
+  color: #d1d5db;
+  border-color: #6b7280;
 }
 QPushButton:disabled {
   background: #e2e8f0;

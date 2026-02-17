@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from core.diff_engine import DiffEngine
 from core.models import (
@@ -14,6 +14,7 @@ from core.models import (
     ComparisonResult,
     MultiVersionResult,
     ParseError,
+    ParsedDocument,
     UnsupportedFormatError,
 )
 from core.registry import ParserRegistry, ReporterRegistry
@@ -73,16 +74,19 @@ class Orchestrator:
         )
 
         self._progress("Parsing file A", 0.2)
+        decode_entities = self._should_decode_entities(ext_a)
         try:
             doc_a = parser_a.parse(str(path_a))
         except ParseError as exc:
             raise ParseError(file_a, exc.reason) from exc
+        self._normalize_document_text_entities(doc_a, decode_entities=decode_entities)
 
         self._progress("Parsing file B", 0.4)
         try:
             doc_b = parser_b.parse(str(path_b))
         except ParseError as exc:
             raise ParseError(file_b, exc.reason) from exc
+        self._normalize_document_text_entities(doc_b, decode_entities=decode_entities)
 
         self._progress("Comparing documents", 0.6)
         result = DiffEngine.compare(doc_a, doc_b)
@@ -293,15 +297,21 @@ class Orchestrator:
 
         documents = []
         total_parse = len(path_objects)
+        decode_entities = self._should_decode_entities(base_path.suffix.lower())
         for idx, path in enumerate(path_objects, start=1):
             self._progress(
                 f"Parsing version {idx}/{total_parse}...",
                 0.1 + (idx / max(1, total_parse)) * 0.35,
             )
             try:
-                documents.append(parser.parse(str(path)))
+                document = parser.parse(str(path))
             except ParseError as exc:
                 raise ParseError(str(path), exc.reason) from exc
+            self._normalize_document_text_entities(
+                document,
+                decode_entities=decode_entities,
+            )
+            documents.append(document)
 
         comparisons: list[ComparisonResult] = []
         output_dir_path = Path(output_dir)
@@ -378,6 +388,10 @@ class Orchestrator:
         except ParseError as exc:
             raise ParseError(file_b, exc.reason) from exc
 
+        decode_entities = self._should_decode_entities(ext_a)
+        self._normalize_document_text_entities(doc_a, decode_entities=decode_entities)
+        self._normalize_document_text_entities(doc_b, decode_entities=decode_entities)
+
         return DiffEngine.compare(doc_a, doc_b)
 
     @staticmethod
@@ -405,3 +419,39 @@ class Orchestrator:
         for bad in '<>:"/\\|?*':
             safe = safe.replace(bad, "_")
         return safe
+
+    @staticmethod
+    def _should_decode_entities(extension: str) -> bool:
+        return extension.lower() not in {".txt", ".srt"}
+
+    @staticmethod
+    def _normalize_document_text_entities(
+        document: ParsedDocument,
+        *,
+        decode_entities: bool,
+    ) -> None:
+        if not decode_entities:
+            return
+
+        from core.utils import decode_html_entities
+
+        def normalize_value(value: Any) -> Any:
+            if isinstance(value, str):
+                return decode_html_entities(value)
+            if isinstance(value, list):
+                return [normalize_value(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(normalize_value(item) for item in value)
+            if isinstance(value, dict):
+                return {key: normalize_value(item) for key, item in value.items()}
+            return value
+
+        for segment in document.segments:
+            segment.target = decode_html_entities(segment.target)
+            if segment.source is not None:
+                segment.source = decode_html_entities(segment.source)
+            if segment.metadata:
+                segment.metadata = normalize_value(segment.metadata)
+
+        if document.metadata:
+            document.metadata = normalize_value(document.metadata)

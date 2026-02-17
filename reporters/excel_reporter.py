@@ -7,6 +7,7 @@ from pathlib import Path
 import xlsxwriter
 
 from core.models import ChangeStatistics, ChangeType, ChunkType, ComparisonResult, DiffChunk
+from core.utils import decode_html_entities
 from reporters.base import BaseReporter
 
 
@@ -511,8 +512,12 @@ class ExcelReporter(BaseReporter):
         text_buffer: list[str] = []
 
         for chunk in diffs:
+            chunk_text = decode_html_entities(
+                chunk.text,
+                decode_single_encoded=False,
+            )
             if chunk.type == ChunkType.EQUAL:
-                text_buffer.append(chunk.text)
+                text_buffer.append(chunk_text)
                 continue
             if text_buffer:
                 fragments.append("".join(text_buffer))
@@ -520,10 +525,10 @@ class ExcelReporter(BaseReporter):
 
             if chunk.type == ChunkType.DELETE and side == "old":
                 fragments.append(diff_formats[ChunkType.DELETE])
-                fragments.append(chunk.text)
+                fragments.append(chunk_text)
             elif chunk.type == ChunkType.INSERT and side == "new":
                 fragments.append(diff_formats[ChunkType.INSERT])
-                fragments.append(chunk.text)
+                fragments.append(chunk_text)
 
         if text_buffer:
             fragments.append("".join(text_buffer))
@@ -550,6 +555,7 @@ class ExcelReporter(BaseReporter):
     @staticmethod
     def _write_text(worksheet, row: int, col: int, value: object, cell_format) -> None:
         text = "" if value is None else str(value)
+        text = decode_html_entities(text, decode_single_encoded=False)
         worksheet.write_string(row, col, text, cell_format)
 
     @staticmethod

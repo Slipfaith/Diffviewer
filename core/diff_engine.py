@@ -213,7 +213,51 @@ class TextDiffer:
 
     @classmethod
     def diff_auto(cls, a: str, b: str) -> list[DiffChunk]:
+        if "\n" in a or "\n" in b:
+            return cls._diff_lines_then_words(a, b)
         return cls.diff_words(a, b)
+
+    @classmethod
+    def _diff_lines_then_words(cls, a: str, b: str) -> list[DiffChunk]:
+        a_norm = a.replace("\r\n", "\n").replace("\r", "\n")
+        b_norm = b.replace("\r\n", "\n").replace("\r", "\n")
+        a_lines = a_norm.splitlines(keepends=True)
+        b_lines = b_norm.splitlines(keepends=True)
+        # Ensure last element ends with \n for consistent matching
+        if a_lines and not a_lines[-1].endswith("\n"):
+            a_lines[-1] += "\n"
+        if b_lines and not b_lines[-1].endswith("\n"):
+            b_lines[-1] += "\n"
+
+        matcher = SequenceMatcher(None, a_lines, b_lines)
+        chunks: list[DiffChunk] = []
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                cls._append_chunk(chunks, ChunkType.EQUAL, "".join(a_lines[i1:i2]))
+            elif tag == "delete":
+                cls._append_chunk(chunks, ChunkType.DELETE, "".join(a_lines[i1:i2]))
+            elif tag == "insert":
+                cls._append_chunk(chunks, ChunkType.INSERT, "".join(b_lines[j1:j2]))
+            elif tag == "replace":
+                cls._diff_replace_lines(chunks, a_lines[i1:i2], b_lines[j1:j2])
+        return chunks
+
+    @classmethod
+    def _diff_replace_lines(
+        cls,
+        chunks: list[DiffChunk],
+        old_lines: list[str],
+        new_lines: list[str],
+    ) -> None:
+        common = min(len(old_lines), len(new_lines))
+        for i in range(common):
+            line_chunks = cls.diff_words(old_lines[i], new_lines[i])
+            for chunk in line_chunks:
+                cls._append_chunk(chunks, chunk.type, chunk.text)
+        for line in old_lines[common:]:
+            cls._append_chunk(chunks, ChunkType.DELETE, line)
+        for line in new_lines[common:]:
+            cls._append_chunk(chunks, ChunkType.INSERT, line)
 
     @classmethod
     def has_only_non_word_or_case_changes(cls, a: str, b: str) -> bool:
@@ -310,10 +354,10 @@ class DiffEngine:
 
             similarity = SequenceMatcher(None, seg_a.target, seg_b.target).ratio()
             text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target)
-            keep_xliff_id_pair_as_modified = xliff_family_mode and seg_a.id == seg_b.id
+            ids_match = seg_a.id == seg_b.id
             keep_as_modified = (
                 strict_id_mode
-                or keep_xliff_id_pair_as_modified
+                or ids_match
                 or DiffEngine._sources_match(seg_a.source, seg_b.source)
                 or similarity >= SIMILARITY_THRESHOLD
                 or TextDiffer.has_only_non_word_or_case_changes(

@@ -7,7 +7,7 @@ from pathlib import Path
 from jinja2 import Template
 
 from core.models import ChangeStatistics, ChangeType, ChunkType, ComparisonResult, DiffChunk
-from core.utils import resource_path
+from core.utils import decode_html_entities, resource_path
 from reporters.base import BaseReporter
 
 
@@ -191,7 +191,10 @@ class HtmlReporter(BaseReporter):
 
     @staticmethod
     def _escape(text: str) -> str:
-        return html.escape(text, quote=True)
+        return html.escape(
+            decode_html_entities(text, decode_single_encoded=False),
+            quote=False,
+        )
 
     def _escape_changed_text(self, text: str) -> str:
         return self._escape(text).replace(" ", "&middot;")

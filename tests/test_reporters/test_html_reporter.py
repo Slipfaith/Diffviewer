@@ -251,6 +251,62 @@ def test_html_reporter_preserves_newlines(tmp_path: Path) -> None:
     assert "Line 1\nLine 2" in output_content
 
 
+def test_html_reporter_decodes_nested_html_entities(tmp_path: Path) -> None:
+    seg = make_segment("1", "don&amp;#39;t panic")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(reporter.generate(result, str(tmp_path / "entities.html")))
+    output_content = output_path.read_text(encoding="utf-8")
+
+    assert "don't panic" in output_content
+    assert "&#39;" not in output_content
+    assert "&amp;#39;" not in output_content
+
+
+def test_html_reporter_preserves_single_encoded_entity_literal(tmp_path: Path) -> None:
+    seg = make_segment("1", "don&#39;t panic")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = HtmlReporter()
+    output_path = Path(reporter.generate(result, str(tmp_path / "literal_entities.html")))
+    output_content = output_path.read_text(encoding="utf-8")
+
+    assert "don&amp;#39;t panic" in output_content
+
+
 def test_html_reporter_generates_multi_report_with_file_filter(tmp_path: Path) -> None:
     seg_a_before = make_segment("1", "Hello")
     seg_a_after = make_segment("1", "Hello world")

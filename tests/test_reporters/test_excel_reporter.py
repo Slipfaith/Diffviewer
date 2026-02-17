@@ -328,6 +328,64 @@ def test_excel_reporter_keeps_formula_like_text_as_string(tmp_path: Path) -> Non
     assert ws["D2"].data_type == "s"
 
 
+def test_excel_reporter_decodes_nested_html_entities(tmp_path: Path) -> None:
+    seg = make_segment("1", "don&amp;#39;t panic")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "entities.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    assert ws["C2"].value == "don't panic"
+    assert ws["D2"].value == "don't panic"
+
+
+def test_excel_reporter_preserves_single_encoded_entity_literal(tmp_path: Path) -> None:
+    seg = make_segment("1", "don&#39;t panic")
+    changes = [
+        ChangeRecord(
+            type=ChangeType.UNCHANGED,
+            segment_before=seg,
+            segment_after=seg,
+            text_diff=[],
+            similarity=1.0,
+            context=seg.context,
+        )
+    ]
+    result = ComparisonResult(
+        file_a=make_doc("a.txt", [seg]),
+        file_b=make_doc("b.txt", [seg]),
+        changes=changes,
+        statistics=ChangeStatistics.from_changes(changes),
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    reporter = ExcelReporter()
+    output_file = reporter.generate(result, str(tmp_path / "literal_entities.xlsx"))
+    workbook = openpyxl.load_workbook(output_file)
+    ws = workbook["Report"]
+
+    assert ws["C2"].value == "don&#39;t panic"
+    assert ws["D2"].value == "don&#39;t panic"
+
+
 def test_excel_reporter_rich_text_falls_back_when_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

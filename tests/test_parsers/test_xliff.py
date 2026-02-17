@@ -41,3 +41,29 @@ def test_xliff_empty_file(tmp_path: Path) -> None:
     parser = XliffParser()
     with pytest.raises(ParseError):
         parser.parse(str(empty_file))
+
+
+def test_xliff_decodes_nested_html_entities(tmp_path: Path) -> None:
+    xliff_file = tmp_path / "entities.xliff"
+    xliff_file.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en" target-language="en" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1">
+        <source>Don&amp;#39;t</source>
+        <target>Can&amp;#39;t</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
+""",
+        encoding="utf-8",
+    )
+
+    parser = XliffParser()
+    doc = parser.parse(str(xliff_file))
+
+    assert len(doc.segments) == 1
+    assert doc.segments[0].source == "Don't"
+    assert doc.segments[0].target == "Can't"

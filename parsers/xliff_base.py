@@ -5,6 +5,7 @@ from pathlib import Path
 from lxml import etree
 
 from core.models import ParsedDocument, ParseError, Segment, SegmentContext
+from core.utils import decode_html_entities
 from parsers.base import BaseParser
 
 
@@ -19,7 +20,7 @@ def _first_child_text(element: etree._Element, name: str) -> str | None:
     if not matches:
         return None
     text = "".join(matches[0].itertext())
-    return text
+    return decode_html_entities(text)
 
 
 class BaseXliffParser(BaseParser):

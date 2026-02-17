@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2" xmlns:mq="http://memoq.com/xliff">
+  <file source-language="en" target-language="en" datatype="plaintext" original="sample.txt">
+    <body>
+      <trans-unit id="1" mq:status="Translated">
+        <source>Don&amp;#39;t</source>
+        <target>Can&amp;#39;t</target>
+        <context-group><context context-type="x-mmq-structural-context">A&amp;#39;B</context></context-group>
+        <note>N&amp;#39;1</note>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
