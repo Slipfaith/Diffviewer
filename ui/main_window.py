@@ -1001,7 +1001,7 @@ class MainWindow(QMainWindow):
         elif mode == self.MODE_VERSIONS:
             result = payload["result"]
             self.last_html_report = result.summary_report_path
-            self.last_excel_report = None
+            self.last_excel_report = result.summary_excel_path
             self.statusBar().showMessage(
                 f"Done: {len(result.comparisons)} comparisons generated"
             )

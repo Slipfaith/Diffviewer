@@ -6,7 +6,8 @@ from pathlib import Path
 
 import xlsxwriter
 
-from core.models import ChangeStatistics, ChangeType, ChunkType, ComparisonResult, DiffChunk
+from core.models import ChangeStatistics, ChangeType, ChunkType, ComparisonResult, DiffChunk, MultiVersionResult, Segment
+from core.diff_engine import TextDiffer
 from core.utils import decode_html_entities
 from reporters.base import BaseReporter
 
@@ -83,6 +84,49 @@ class ExcelReporter(BaseReporter):
                     {"bg_color": "#eef2ff", "text_wrap": True}
                 ),
             }
+            diff_formats = {
+                ChunkType.DELETE: workbook.add_format(
+                    {"font_color": "#b91c1c", "font_strikeout": True, "text_wrap": True}
+                ),
+                ChunkType.INSERT: workbook.add_format(
+                    {"font_color": "#15803d", "underline": True, "text_wrap": True}
+                ),
+                ChunkType.EQUAL: workbook.add_format({"text_wrap": True}),
+            }
+            delete_cell_formats = {
+                ChangeType.ADDED: workbook.add_format(
+                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.DELETED: workbook.add_format(
+                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.MODIFIED: workbook.add_format(
+                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.UNCHANGED: workbook.add_format(
+                    {"text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+                ChangeType.MOVED: workbook.add_format(
+                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#b91c1c", "font_strikeout": True}
+                ),
+            }
+            insert_cell_formats = {
+                ChangeType.ADDED: workbook.add_format(
+                    {"bg_color": "#ecfdf3", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.DELETED: workbook.add_format(
+                    {"bg_color": "#fef2f2", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.MODIFIED: workbook.add_format(
+                    {"bg_color": "#fffbeb", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.UNCHANGED: workbook.add_format(
+                    {"text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+                ChangeType.MOVED: workbook.add_format(
+                    {"bg_color": "#eef2ff", "text_wrap": True, "font_color": "#15803d", "underline": True}
+                ),
+            }
 
             show_source = any(
                 bool(
@@ -155,8 +199,31 @@ class ExcelReporter(BaseReporter):
                     self._write_text(report_ws, row, col_segment, segment_id, row_format)
                     if col_source is not None:
                         self._write_text(report_ws, row, col_source, source, row_format)
-                    self._write_text(report_ws, row, col_old, old_target, row_format)
-                    self._write_text(report_ws, row, col_new, new_target, row_format)
+
+                    if change.type == ChangeType.MODIFIED and change.text_diff:
+                        self._write_rich(
+                            report_ws, row, col_old, change.text_diff,
+                            row_format, diff_formats, side="old", fallback=old_target,
+                        )
+                        self._write_rich(
+                            report_ws, row, col_new, change.text_diff,
+                            row_format, diff_formats, side="new", fallback=new_target,
+                        )
+                    elif change.type == ChangeType.ADDED:
+                        self._write_text(report_ws, row, col_old, "", row_format)
+                        self._write_text(
+                            report_ws, row, col_new, new_target,
+                            insert_cell_formats[change.type],
+                        )
+                    elif change.type == ChangeType.DELETED:
+                        self._write_text(
+                            report_ws, row, col_old, old_target,
+                            delete_cell_formats[change.type],
+                        )
+                        self._write_text(report_ws, row, col_new, "", row_format)
+                    else:
+                        self._write_text(report_ws, row, col_old, old_target, row_format)
+                        self._write_text(report_ws, row, col_new, new_target, row_format)
                     if change.type == ChangeType.UNCHANGED:
                         report_ws.set_row(row, None, None, {"hidden": True})
                     row += 1
@@ -185,6 +252,199 @@ class ExcelReporter(BaseReporter):
             workbook.close()
 
         return str(output_file)
+
+    def generate_versions(
+        self,
+        result: MultiVersionResult,
+        output_path: str,
+    ) -> str:
+        output_file = Path(output_path)
+        if output_file.suffix.lower() != self.output_extension:
+            output_file = output_file.with_suffix(self.output_extension)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        file_names = [Path(p).name for p in result.file_paths]
+        rows = self._build_version_rows(result)
+
+        workbook = xlsxwriter.Workbook(
+            str(output_file),
+            {
+                "strings_to_formulas": False,
+                "strings_to_numbers": False,
+                "strings_to_urls": False,
+            },
+        )
+        try:
+            ws = workbook.add_worksheet("Version Matrix")
+            stats_ws = workbook.add_worksheet("Statistics")
+
+            header_fmt = workbook.add_format(
+                {"bold": True, "bg_color": "#f3f4f6", "text_wrap": True}
+            )
+            unchanged_fmt = workbook.add_format(
+                {"bg_color": "#f8fafc", "text_wrap": True}
+            )
+            changed_fmt = workbook.add_format(
+                {"bg_color": "#fffbeb", "text_wrap": True}
+            )
+            base_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#334155"}
+            )
+            same_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#111827"}
+            )
+            missing_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#94a3b8", "italic": True}
+            )
+
+            version_palette = [
+                "#b45309",
+                "#0369a1",
+                "#6d28d9",
+                "#15803d",
+                "#be185d",
+                "#4338ca",
+            ]
+            ins_formats: list[xlsxwriter.format.Format] = []
+            for idx in range(len(file_names)):
+                color = version_palette[idx % len(version_palette)]
+                ins_formats.append(
+                    workbook.add_format(
+                        {
+                            "font_color": color,
+                            "bold": True,
+                            "text_wrap": True,
+                        }
+                    )
+                )
+
+            show_source = any(bool(row["source"].strip()) for row in rows)
+
+            headers = ["Segment ID"]
+            if show_source:
+                headers.append("Source")
+            for name in file_names:
+                headers.append(f"Target: {name}")
+            ws.write_row(0, 0, headers, header_fmt)
+
+            col_id = 0
+            col_source: int | None = 1 if show_source else None
+            col_target_start = 2 if show_source else 1
+
+            ws.set_column(col_id, col_id, 10)
+            if col_source is not None:
+                ws.set_column(col_source, col_source, 30)
+            for i in range(len(file_names)):
+                ws.set_column(col_target_start + i, col_target_start + i, 50)
+            ws.freeze_panes(1, 0)
+
+            row_num = 1
+            for row_data in rows:
+                row_changed = self._version_row_has_changes(row_data)
+                row_bg_fmt = changed_fmt if row_changed else unchanged_fmt
+
+                self._write_text(ws, row_num, col_id, row_data["id"], row_bg_fmt)
+                if col_source is not None:
+                    self._write_text(ws, row_num, col_source, row_data["source"], row_bg_fmt)
+
+                targets = row_data["targets"]
+                states = row_data["states"]
+                for idx, (target, state) in enumerate(zip(targets, states)):
+                    col = col_target_start + idx
+                    if state == "base":
+                        self._write_text(ws, row_num, col, target, base_fmt)
+                    elif state == "same":
+                        self._write_text(ws, row_num, col, target, same_fmt)
+                    elif state == "missing":
+                        self._write_text(ws, row_num, col, "", missing_fmt)
+                    elif state in {"changed", "added"}:
+                        prev_target = targets[idx - 1] if idx > 0 else ""
+                        self._write_version_rich(
+                            ws, row_num, col,
+                            prev_target, target, state,
+                            ins_formats[idx],
+                            same_fmt,
+                        )
+                    else:
+                        self._write_text(ws, row_num, col, target, row_bg_fmt)
+
+                row_num += 1
+
+            last_col = col_target_start + len(file_names) - 1
+            ws.autofilter(0, 0, max(1, row_num - 1), last_col)
+
+            changes_per_file = self._count_version_changes(rows, len(file_names))
+            stats_ws.set_column(0, 0, 30)
+            stats_ws.set_column(1, 1, 14)
+            for idx, name in enumerate(file_names):
+                suffix = " (base)" if idx == 0 else ""
+                stats_ws.write(idx, 0, f"Changes in {name}{suffix}", header_fmt)
+                stats_ws.write(idx, 1, changes_per_file[idx])
+        finally:
+            workbook.close()
+
+        return str(output_file)
+
+    def _write_version_rich(
+        self,
+        worksheet,
+        row: int,
+        col: int,
+        prev_target: str,
+        current_target: str,
+        state: str,
+        ins_format,
+        default_format,
+    ) -> None:
+        if not current_target:
+            self._write_text(worksheet, row, col, "", default_format)
+            return
+
+        if state == "added" and not prev_target:
+            self._write_text(worksheet, row, col, current_target, ins_format)
+            return
+
+        diffs = TextDiffer.diff_auto(prev_target, current_target)
+        fragments: list[object] = []
+        for chunk in diffs:
+            text = decode_html_entities(chunk.text, decode_single_encoded=False)
+            if chunk.type == ChunkType.EQUAL:
+                fragments.append(text)
+            elif chunk.type == ChunkType.INSERT:
+                fragments.append(ins_format)
+                fragments.append(text)
+
+        has_rich = any(not isinstance(item, str) for item in fragments)
+        if len(fragments) <= 2 or not has_rich:
+            self._write_text(worksheet, row, col, current_target, default_format)
+            return
+
+        try:
+            result = worksheet.write_rich_string(row, col, *fragments, default_format)
+            if result != 0:
+                self._write_text(worksheet, row, col, current_target, default_format)
+        except Exception:
+            self._write_text(worksheet, row, col, current_target, default_format)
+
+    @staticmethod
+    def _build_version_rows(result: MultiVersionResult) -> list[dict]:
+        from reporters.summary_reporter import SummaryReporter
+        reporter = SummaryReporter()
+        return reporter._build_version_rows(result)
+
+    @staticmethod
+    def _version_row_has_changes(row: dict) -> bool:
+        return any(s not in {"base", "same"} for s in row.get("states", []))
+
+    @staticmethod
+    def _count_version_changes(rows: list[dict], file_count: int) -> list[int]:
+        counts = [0] * file_count
+        for row in rows:
+            states = row.get("states", [])
+            for idx, state in enumerate(states):
+                if state not in {"base", "same"}:
+                    counts[idx] += 1
+        return counts
 
     def generate_from_html(self, html_path: str, output_path: str | None = None) -> str:
         html_file = Path(html_path)

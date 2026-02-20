@@ -333,10 +333,17 @@ class Orchestrator:
             report_paths=[],
         )
 
-        self._progress("Generating summary report", 0.9)
+        self._progress("Generating summary report", 0.88)
         timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
         summary_path = output_dir_path / f"versions_summary_{timestamp_label}.html"
         SummaryReporter().generate_versions(multi, str(summary_path))
+
+        self._progress("Generating Excel report", 0.94)
+        summary_excel_path = output_dir_path / f"versions_summary_{timestamp_label}.xlsx"
+        multi.summary_excel_path = ExcelReporter().generate_versions(
+            multi, str(summary_excel_path)
+        )
+
         self._progress("Done", 1.0)
         return multi
 
