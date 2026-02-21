@@ -52,6 +52,7 @@ tools/**/obj/
 *.pdb+
 *.html
 *.xlsx
+*.md
 
 .claude/
 test_out/
