@@ -31,7 +31,6 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
-        "core.qa_verify",
         "parsers.xliff_parser",
         "parsers.sdlxliff_parser",
         "parsers.memoq_parser",
@@ -45,7 +44,6 @@ a = Analysis(
         "reporters.excel_reporter",
         "reporters.docx_reporter",
         "reporters.summary_reporter",
-        "ui.qa_column_mapping_dialog",
     ],
     hookspath=[],
     hooksconfig={},

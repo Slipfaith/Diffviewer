@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
 import os
 from pathlib import Path
 import subprocess
@@ -35,20 +34,9 @@ from PyQt6.QtWidgets import (
 )
 
 from core.models import UnsupportedFormatError
-from core.qa_verify import (
-    QAScanResult,
-    QASheetConfig,
-    QAVerificationResult,
-    QAVerifier,
-    STATUS_APPLIED,
-    STATUS_CANNOT_VERIFY,
-    STATUS_NOT_APPLICABLE,
-    STATUS_NOT_APPLIED,
-)
 from core.registry import ParserRegistry
 from ui.comparison_worker import ComparisonWorker
 from ui.file_tile_drop_zone import FileTileDropZone, TileVisualState
-from ui.qa_column_mapping_dialog import QAColumnMappingDialog
 
 
 def _resolve_app_icon() -> QIcon | None:
@@ -160,7 +148,6 @@ class VersionFileListWidget(QListWidget):
 class MainWindow(QMainWindow):
     MODE_FILE = "file"
     MODE_VERSIONS = "versions"
-    MODE_QA_VERIFY = "qa_verify"
 
     def __init__(self) -> None:
         super().__init__()
@@ -174,9 +161,6 @@ class MainWindow(QMainWindow):
 
         self.manual_file_pairs: dict[str, str] = {}
         self.pending_file_a: str | None = None
-        self.qa_sheet_configs: list[QASheetConfig] = []
-        self.qa_scan_warnings: list[str] = []
-        self.qa_result: QAVerificationResult | None = None
 
         self.setWindowTitle("Diff View")
         self.setMinimumSize(800, 500)
@@ -235,17 +219,7 @@ class MainWindow(QMainWindow):
             "<ul>"
             "<li>Добавьте 2+ файла; порядок задаёт версионность.</li>"
             "<li>Перетаскивайте файлы в списке для изменения порядка.</li>"
-            "<li>Результат: сводный HTML-отчёт по всем парам (1→2, 2→3, ...).</li>"
-            "</ul>"
-            "<hr>"
-            '<h3 style="margin-bottom:4px;">QA Verify</h3>'
-            "<p>Проверка применения QA-правок (TP/FP) в финальных файлах.</p>"
-            "<ul>"
-            "<li>Загрузите QA-отчёты (.xlsx) и финальные XLIFF-файлы.</li>"
-            "<li>Программа автоматически определит колонки. "
-            "Для корректировки нажмите <b>Column Mapping</b>.</li>"
-            "<li>Результат: статистика Applied / Not Applied / Cannot Verify "
-            "с возможностью экспорта в Excel.</li>"
+            "<li>Результат: сводный HTML-отчёт по всем парам (1->2, 2->3, ...).</li>"
             "</ul>"
             "<hr>"
             '<p style="color:#64748b; font-size:11px;">Поддерживаемые форматы: '
@@ -277,15 +251,11 @@ class MainWindow(QMainWindow):
         self.versions_mode_btn = self._make_mode_button(
             "Multi-Version", self.MODE_VERSIONS
         )
-        self.qa_verify_mode_btn = self._make_mode_button(
-            "QA Verify", self.MODE_QA_VERIFY
-        )
         self.versions_mode_btn.setAcceptDrops(True)
         self.versions_mode_btn.installEventFilter(self)
 
         layout.addWidget(self.file_mode_btn)
         layout.addWidget(self.versions_mode_btn)
-        layout.addWidget(self.qa_verify_mode_btn)
         layout.addStretch(1)
         return layout
 
@@ -293,10 +263,8 @@ class MainWindow(QMainWindow):
         self.mode_stack = QStackedWidget(self)
         self.file_page = self._build_file_mode_page()
         self.versions_page = self._build_versions_mode_page()
-        self.qa_verify_page = self._build_qa_verify_page()
         self.mode_stack.addWidget(self.file_page)
         self.mode_stack.addWidget(self.versions_page)
-        self.mode_stack.addWidget(self.qa_verify_page)
         return self.mode_stack
 
     def _build_file_mode_page(self) -> QWidget:
@@ -393,81 +361,6 @@ class MainWindow(QMainWindow):
 
         return page
 
-    def _build_qa_verify_page(self) -> QWidget:
-        page = QWidget(self)
-        layout = QVBoxLayout(page)
-        layout.setSpacing(10)
-
-        lists_row = QHBoxLayout()
-        lists_row.setSpacing(12)
-
-        self.qa_reports_zone = FileTileDropZone(
-            "QA Reports (.xlsx)",
-            allowed_extensions=[".xlsx"],
-            parent=self,
-        )
-        self.qa_reports_zone.files_changed.connect(self._on_qa_reports_changed)
-
-        self.qa_final_zone = FileTileDropZone(
-            "Final XLIFF Files",
-            allowed_extensions=[".xliff", ".xlf", ".sdlxliff", ".mqxliff"],
-            parent=self,
-        )
-        self.qa_final_zone.files_changed.connect(self._on_qa_final_files_changed)
-
-        lists_row.addWidget(self.qa_reports_zone, 1)
-        lists_row.addWidget(self.qa_final_zone, 1)
-        layout.addLayout(lists_row, 1)
-
-        controls_row = QHBoxLayout()
-        controls_row.setSpacing(8)
-
-        self.qa_mapping_status_label = QLabel("Load QA reports to detect columns.")
-        self.qa_mapping_status_label.setObjectName("sectionTitle")
-        controls_row.addWidget(self.qa_mapping_status_label, 1)
-
-        self.qa_map_columns_btn = QPushButton("Column Mapping")
-        self.qa_map_columns_btn.clicked.connect(self._open_qa_mapping_dialog)
-        controls_row.addWidget(self.qa_map_columns_btn)
-
-        self.qa_export_btn = QPushButton("Export Results")
-        self.qa_export_btn.clicked.connect(self._export_qa_results)
-        controls_row.addWidget(self.qa_export_btn)
-        layout.addLayout(controls_row)
-
-        summary_row = QHBoxLayout()
-        summary_row.setSpacing(8)
-        self.qa_summary_labels: dict[str, QLabel] = {}
-        for status in (
-            STATUS_APPLIED,
-            STATUS_NOT_APPLIED,
-            STATUS_CANNOT_VERIFY,
-            STATUS_NOT_APPLICABLE,
-        ):
-            box = QFrame(self)
-            box.setObjectName("qaSummaryBox")
-            box_layout = QHBoxLayout(box)
-            box_layout.setContentsMargins(8, 4, 8, 4)
-            box_layout.setSpacing(6)
-            label = QLabel(status)
-            value = QLabel("0")
-            value.setObjectName("qaSummaryValue")
-            self.qa_summary_labels[status] = value
-            box_layout.addWidget(label)
-            box_layout.addWidget(value)
-            summary_row.addWidget(box)
-        summary_row.addStretch(1)
-        layout.addLayout(summary_row)
-
-        hint = QLabel(
-            "Verification results are shown in summary and exported to Excel.",
-            self,
-        )
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        self._update_qa_controls()
-        return page
 
     def _build_bottom_panel(self) -> QWidget:
         panel = QFrame(self)
@@ -531,8 +424,6 @@ class MainWindow(QMainWindow):
     def _set_mode(self, mode: str) -> None:
         self.current_mode = mode
         self._reset_comparison_output()
-        qa_mode = mode == self.MODE_QA_VERIFY
-        self.output_controls.setVisible(not qa_mode)
         if mode == self.MODE_FILE:
             self.mode_stack.setCurrentWidget(self.file_page)
             self.compare_btn.setText("Compare")
@@ -543,9 +434,10 @@ class MainWindow(QMainWindow):
             self.compare_btn.setText("Compare Versions")
             self.versions_mode_btn.setChecked(True)
         else:
-            self.mode_stack.setCurrentWidget(self.qa_verify_page)
-            self.compare_btn.setText("Verify QA")
-            self.qa_verify_mode_btn.setChecked(True)
+            self.mode_stack.setCurrentWidget(self.file_page)
+            self.compare_btn.setText("Compare")
+            self.file_mode_btn.setChecked(True)
+            self._refresh_file_pairing_visuals()
         self._update_action_state()
 
     def eventFilter(self, watched, event) -> bool:  # type: ignore[override]
@@ -693,106 +585,6 @@ class MainWindow(QMainWindow):
         self.file_a_zone.apply_states(states_a)
         self.file_b_zone.apply_states(states_b)
 
-    def _on_qa_reports_changed(self, _paths: list[str]) -> None:
-        self.qa_result = None
-        self._scan_qa_reports()
-        self._populate_qa_results_table(None)
-        self._update_action_state()
-
-    def _on_qa_final_files_changed(self, _paths: list[str]) -> None:
-        self.qa_result = None
-        self._update_qa_controls()
-        self._update_action_state()
-
-    def _scan_qa_reports(self) -> None:
-        report_paths = self.qa_reports_zone.file_paths()
-        self.qa_sheet_configs = []
-        self.qa_scan_warnings = []
-        if not report_paths:
-            self._update_qa_mapping_status_label()
-            self._update_qa_controls()
-            return
-
-        verifier = QAVerifier()
-        scan_result: QAScanResult = verifier.scan_reports(report_paths)
-        self.qa_sheet_configs = scan_result.sheet_configs
-        self.qa_scan_warnings = scan_result.warnings
-        self._update_qa_mapping_status_label()
-        self._update_qa_controls()
-
-    def _open_qa_mapping_dialog(self) -> None:
-        if not self.qa_sheet_configs:
-            QMessageBox.information(self, "QA Verify", "Load QA reports first.")
-            return
-        dialog = QAColumnMappingDialog(self.qa_sheet_configs, self)
-        if dialog.exec():
-            self.qa_sheet_configs = dialog.sheet_configs()
-            self._update_qa_mapping_status_label()
-            self._update_qa_controls()
-            self._update_action_state()
-
-    def _update_qa_mapping_status_label(self) -> None:
-        if not self.qa_sheet_configs:
-            self.qa_mapping_status_label.setText("Load QA reports to detect columns.")
-            return
-        complete = sum(1 for item in self.qa_sheet_configs if item.mapping.is_complete())
-        total = len(self.qa_sheet_configs)
-        text = f"Sheets: {total}, mapped: {complete}, unresolved: {total - complete}"
-        if self.qa_scan_warnings:
-            text += f" (warnings: {len(self.qa_scan_warnings)})"
-        self.qa_mapping_status_label.setText(text)
-
-    def _qa_can_run(self) -> bool:
-        if not self.qa_sheet_configs:
-            return False
-        if not self.qa_final_zone.file_paths():
-            return False
-        return any(item.mapping.is_complete() for item in self.qa_sheet_configs)
-
-    def _update_qa_controls(self) -> None:
-        has_sheets = bool(self.qa_sheet_configs)
-        self.qa_map_columns_btn.setEnabled(has_sheets)
-        self.qa_export_btn.setEnabled(self.qa_result is not None and bool(self.qa_result.rows))
-
-    def _populate_qa_results_table(self, result: QAVerificationResult | None) -> None:
-        if result is None:
-            for value_label in self.qa_summary_labels.values():
-                value_label.setText("0")
-            self._update_qa_controls()
-            return
-
-        self._update_qa_summary(result)
-        self._update_qa_controls()
-
-    def _update_qa_summary(self, result: QAVerificationResult) -> None:
-        for status, label in self.qa_summary_labels.items():
-            label.setText(str(result.status_counts.get(status, 0)))
-
-    def _export_qa_results(self) -> None:
-        if self.qa_result is None or not self.qa_result.rows:
-            QMessageBox.information(self, "QA Verify", "No QA verification results to export.")
-            return
-
-        output_dir = self.output_line.text().strip() or "./output/"
-        default_name = (
-            f"qa_verify_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        )
-        default_path = str(Path(output_dir) / default_name)
-        selected_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export QA Verification",
-            default_path,
-            "Excel file (*.xlsx)",
-        )
-        if not selected_path:
-            return
-        try:
-            exported = QAVerifier().export_to_excel(self.qa_result, selected_path)
-        except Exception as exc:
-            QMessageBox.warning(self, "Export failed", str(exc))
-            return
-        self.statusBar().showMessage(f"QA results exported: {exported}")
-
     def _browse_output_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if path:
@@ -890,18 +682,7 @@ class MainWindow(QMainWindow):
                 return
             payload = {"files": files, "output_dir": output_dir}
         else:
-            if not self._qa_can_run():
-                QMessageBox.warning(
-                    self,
-                    "QA Verify",
-                    "Load QA reports, map Source/Original/QA mark for at least one sheet, "
-                    "and add final XLIFF files.",
-                )
-                return
-            payload = {
-                "sheet_configs": [item.to_dict() for item in self.qa_sheet_configs],
-                "final_files": self.qa_final_zone.file_paths(),
-            }
+            return
 
         self.last_html_report = None
         self.last_excel_report = None
@@ -1005,23 +786,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Done: {len(result.comparisons)} comparisons generated"
             )
-        elif mode == self.MODE_QA_VERIFY:
-            result = payload["result"]
-            self.qa_result = result
-            self._populate_qa_results_table(result)
-            self.statusBar().showMessage(
-                "Done: rows={rows}, applied={applied}, not_applied={not_applied}, "
-                "cannot_verify={cannot_verify}, not_applicable={na}".format(
-                    rows=result.total_rows,
-                    applied=result.status_counts.get(STATUS_APPLIED, 0),
-                    not_applied=result.status_counts.get(STATUS_NOT_APPLIED, 0),
-                    cannot_verify=result.status_counts.get(STATUS_CANNOT_VERIFY, 0),
-                    na=result.status_counts.get(STATUS_NOT_APPLICABLE, 0),
-                )
-            )
-            if result.warnings:
-                preview = "\n".join(f"- {item}" for item in result.warnings[:8])
-                QMessageBox.warning(self, "QA Verify warnings", preview)
 
         self.open_html_btn.setVisible(bool(self.last_html_report))
         self.open_excel_btn.setVisible(bool(self.last_excel_report))
@@ -1097,10 +861,7 @@ class MainWindow(QMainWindow):
             enabled = bool(all_paired and output_ok)
         elif self.current_mode == self.MODE_VERSIONS:
             enabled = bool(self.version_list.count() >= 2 and output_ok)
-        elif self.current_mode == self.MODE_QA_VERIFY:
-            enabled = bool(self._qa_can_run())
         self.compare_btn.setEnabled(enabled and self.worker is None)
-        self._update_qa_controls()
 
     @staticmethod
     def _changed_count(statistics: object) -> int:
@@ -1197,15 +958,6 @@ QFrame#bottomPanel {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
 }
-QFrame#qaSummaryBox {
-  background: #ffffff;
-  border: 1px solid #dbe4f0;
-  border-radius: 8px;
-}
-QLabel#qaSummaryValue {
-  font-weight: 700;
-  color: #0f172a;
-}
 QFrame#fileTileDropZone {
   background: #f8fafc;
   border: 1px solid #dbe4f0;
@@ -1274,3 +1026,4 @@ def run_gui() -> None:
         window.setWindowIcon(icon)
     window.show()
     app.exec()
+

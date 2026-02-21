@@ -67,10 +67,6 @@ def test_main_window_mode_switching(app: QApplication) -> None:
     window._set_mode(window.MODE_VERSIONS)
     assert window.current_mode == window.MODE_VERSIONS
     assert window.compare_btn.text() == "Compare Versions"
-
-    window._set_mode(window.MODE_QA_VERIFY)
-    assert window.current_mode == window.MODE_QA_VERIFY
-    assert window.compare_btn.text() == "Verify QA"
     window.close()
 
 

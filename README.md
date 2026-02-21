@@ -1,7 +1,7 @@
 # Diff View
 
 `Diff View` is a Windows desktop tool for deterministic comparison of localization and office files.
-It supports visual diff reporting, multi-version comparison, and QA fix verification workflows.
+It supports visual diff reporting and multi-version comparison.
 
 Window title in GUI: **Diff View**.
 
@@ -10,7 +10,6 @@ Window title in GUI: **Diff View**.
 - File vs File comparison with multiple files per side.
 - Automatic file pairing by name + manual pairing override.
 - Multi-Version chain comparison with a single summary HTML report.
-- QA Verify mode for TP/FP verification from Excel QA reports.
 - HTML reports (interactive).
 - Excel reports with inline rich diff.
 - DOCX Track Changes export for DOCX comparison (when Microsoft Word is available).
@@ -48,62 +47,6 @@ Window title in GUI: **Diff View**.
 - Comparison is sequential (`v1 -> v2 -> v3 ...`).
 - Generates one summary HTML report with filters and per-version highlighting.
 
-## 3) QA Verify
-
-Purpose: verify whether QA-marked issues from Excel were applied in final translation files.
-
-- Load one or more QA Excel reports (`.xlsx`).
-- Load one or more final translation files (`.xliff`, `.xlf`, `.sdlxliff`, `.mqxliff`).
-- Column mapping:
-  - auto-detection by header heuristics
-  - manual override via `Column Mapping`
-  - supports multi-sheet reports
-
-Verification logic:
-
-- Mandatory rule: **Original Translation (Excel)** vs **Final Translation (XLIFF)**.
-- `Revised Translation` is reference only and does not affect status.
-- `TP`:
-  - different from final -> `APPLIED`
-  - equal to final -> `NOT APPLIED`
-  - missing/ambiguous -> `CANNOT VERIFY`
-- `FP` -> `NOT APPLICABLE`
-- Segment matching priority:
-  - Segment ID
-  - exact Source
-  - normalized Source
-  - compact Source
-
-`FileName` support in QA reports:
-
-- If `FileName` column is mapped, row lookup is restricted to that translation file.
-- Filename matching is tolerant:
-  - path/no path
-  - with/without extension stem key
-  - copy suffix variants like `(1)`, `(copy)`, `-copy`, `_copy`
-
-QA Verify export:
-
-- Export via `Export Results` button (no output folder selection in this tab).
-- `Verification` sheet includes:
-  - Source
-  - Original Translation
-  - Revised Translation
-  - Final Translation
-  - Expected File
-  - Matched File
-  - QA Mark
-  - Verification Status
-  - Matched Segment ID
-  - Reason / Comment
-  - Report / Sheet / Row
-- `Revised Translation` and `Final Translation` are highlighted by diff against `Original Translation`.
-- Source/Original/Revised/Final columns use ~250 px width.
-- `Summary` sheet includes:
-  - status totals
-  - per-file counters
-  - explicit note for files with no QA issues in report.
-
 ## CLI
 
 `main.py` starts GUI with no arguments, and CLI with arguments.
@@ -134,8 +77,6 @@ To avoid accidental overwrites, timestamp now includes seconds where applicable:
   - `changereport_DD-MM-YY--HH-MM-SS.xlsx`
 - Multi-Version:
   - `versions_summary_DD-MM-YY--HH-MM-SS.html`
-- QA Verify export default name:
-  - `qa_verify_YYYYMMDD_HHMMSS.xlsx`
 
 ## Install From Source
 
@@ -165,4 +106,3 @@ The executable uses `Diffviewer.ico` for window/app/taskbar icon.
 - Windows
 - Python 3.11+
 - Microsoft Word (optional, only for DOCX Track Changes export)
-
