@@ -13,10 +13,13 @@ from core.models import (
     ChangeStatistics,
     ComparisonResult,
     MultiVersionResult,
+    OneVsAllResult,
     ParseError,
     ParsedDocument,
     UnsupportedFormatError,
 )
+
+_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff"}
 from core.registry import ParserRegistry, ReporterRegistry
 from parsers.base import BaseParser
 from reporters.docx_reporter import DocxTrackChangesReporter
@@ -346,6 +349,86 @@ class Orchestrator:
 
         self._progress("Done", 1.0)
         return multi
+
+    def compare_one_vs_all(
+        self,
+        reference_path: str,
+        comparison_paths: list[str],
+        output_dir: str,
+    ) -> OneVsAllResult:
+        ref_path = Path(reference_path)
+        ref_ext = ref_path.suffix.lower()
+        if ref_ext not in _ONE_VS_ALL_EXTENSIONS:
+            raise UnsupportedFormatError(ref_ext)
+        for path in comparison_paths:
+            ext = Path(path).suffix.lower()
+            if ext not in _ONE_VS_ALL_EXTENSIONS:
+                raise UnsupportedFormatError(ext)
+
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+        self._progress("Selecting parser", 0.05)
+        try:
+            ref_parser = ParserRegistry.get_parser(str(ref_path))
+        except UnsupportedFormatError as exc:
+            raise UnsupportedFormatError(ref_ext) from exc
+
+        decode_entities = self._should_decode_entities(ref_ext)
+
+        self._progress("Parsing reference file", 0.1)
+        try:
+            ref_doc = ref_parser.parse(str(ref_path))
+        except ParseError as exc:
+            raise ParseError(reference_path, exc.reason) from exc
+        self._normalize_document_text_entities(ref_doc, decode_entities=decode_entities)
+
+        comparison_docs: list[ParsedDocument] = []
+        total_files = len(comparison_paths)
+        for idx, path in enumerate(comparison_paths, start=1):
+            self._progress(
+                f"Parsing comparison file {idx}/{total_files}...",
+                0.1 + (idx / max(1, total_files + 1)) * 0.35,
+            )
+            try:
+                cmp_parser = ParserRegistry.get_parser(path)
+                cmp_doc = cmp_parser.parse(path)
+            except ParseError as exc:
+                raise ParseError(path, exc.reason) from exc
+            self._normalize_document_text_entities(cmp_doc, decode_entities=decode_entities)
+            comparison_docs.append(cmp_doc)
+
+        comparisons: list[ComparisonResult] = []
+        for idx, cmp_doc in enumerate(comparison_docs, start=1):
+            self._progress(
+                f"Comparing {idx}/{total_files}...",
+                0.5 + (idx / max(1, total_files)) * 0.3,
+            )
+            comparisons.append(DiffEngine.compare(ref_doc, cmp_doc))
+
+        result = OneVsAllResult(
+            reference_path=reference_path,
+            comparison_paths=comparison_paths,
+            reference_doc=ref_doc,
+            comparison_docs=comparison_docs,
+            comparisons=comparisons,
+        )
+
+        self._progress("Generating HTML report", 0.83)
+        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+        summary_path = output_dir_path / f"one_vs_all_{timestamp_label}.html"
+        result.summary_html_path = SummaryReporter().generate_one_vs_all(
+            result, str(summary_path)
+        )
+
+        self._progress("Generating Excel report", 0.94)
+        summary_excel_path = output_dir_path / f"one_vs_all_{timestamp_label}.xlsx"
+        result.summary_excel_path = ExcelReporter().generate_one_vs_all(
+            result, str(summary_excel_path)
+        )
+
+        self._progress("Done", 1.0)
+        return result
 
     def _progress(self, message: str, value: float) -> None:
         if self.on_progress is not None:

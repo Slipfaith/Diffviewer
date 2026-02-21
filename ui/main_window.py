@@ -145,9 +145,13 @@ class VersionFileListWidget(QListWidget):
         return paths
 
 
+_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff"}
+
+
 class MainWindow(QMainWindow):
     MODE_FILE = "file"
     MODE_VERSIONS = "versions"
+    MODE_ONE_VS_ALL = "one_vs_all"
 
     def __init__(self) -> None:
         super().__init__()
@@ -161,6 +165,7 @@ class MainWindow(QMainWindow):
 
         self.manual_file_pairs: dict[str, str] = {}
         self.pending_file_a: str | None = None
+        self._ova_ref_updating = False
 
         self.setWindowTitle("Diff View")
         self.setMinimumSize(800, 500)
@@ -222,6 +227,16 @@ class MainWindow(QMainWindow):
             "<li>Результат: сводный HTML-отчёт по всем парам (1->2, 2->3, ...).</li>"
             "</ul>"
             "<hr>"
+            '<h3 style="margin-bottom:4px;">1 vs All</h3>'
+            "<p>Сравнение одного эталонного файла сразу с несколькими.</p>"
+            "<ul>"
+            "<li>Поместите один файл в зону <b>Reference File</b>.</li>"
+            "<li>Добавьте один или несколько файлов в зону <b>Comparison Files</b>.</li>"
+            "<li>Результат: сводный HTML/Excel-отчёт со столбцами "
+            "<b>Seg ID / Source / Target / Target 1 / Target 2 ...</b></li>"
+            "<li>Поддерживаемые форматы: XLIFF, SDLXLIFF, MemoQ XLIFF.</li>"
+            "</ul>"
+            "<hr>"
             '<p style="color:#64748b; font-size:11px;">Поддерживаемые форматы: '
             "XLIFF, SDLXLIFF, MemoQ XLIFF, Excel, Word, PowerPoint, TXT, SRT.</p>"
         )
@@ -234,11 +249,68 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _show_about_dialog(self) -> None:
-        QMessageBox.information(
-            self,
-            "О программе",
-            f"Diff View\nВерсия: {_resolve_app_version()}",
+        dialog = QDialog(self)
+        dialog.setWindowTitle("О программе")
+        dialog.setFixedSize(360, 220)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        banner = QWidget(dialog)
+        banner.setFixedHeight(80)
+        banner.setStyleSheet("background: #1d4ed8; border-radius: 0px;")
+        banner_layout = QVBoxLayout(banner)
+        banner_layout.setContentsMargins(24, 16, 24, 12)
+        banner_layout.setSpacing(2)
+
+        title_label = QLabel("Diff View", banner)
+        title_label.setStyleSheet(
+            "color: #ffffff; font-size: 20px; font-weight: 700; background: transparent;"
         )
+        version_label = QLabel(f"Версия {_resolve_app_version()}", banner)
+        version_label.setStyleSheet(
+            "color: #bfdbfe; font-size: 12px; background: transparent;"
+        )
+        banner_layout.addWidget(title_label)
+        banner_layout.addWidget(version_label)
+        layout.addWidget(banner)
+
+        body = QWidget(dialog)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(24, 20, 24, 20)
+        body_layout.setSpacing(8)
+
+        desc = QLabel("Инструмент для сравнения файлов переводов\nи отслеживания изменений.", body)
+        desc.setStyleSheet("color: #374151; font-size: 13px; background: transparent;")
+        desc.setWordWrap(True)
+        body_layout.addWidget(desc)
+
+        fmt = QLabel(
+            "Форматы: XLIFF · SDLXLIFF · MemoQ XLIFF\nExcel · Word · PowerPoint · TXT · SRT",
+            body,
+        )
+        fmt.setStyleSheet("color: #6b7280; font-size: 11px; background: transparent;")
+        body_layout.addWidget(fmt)
+
+        body_layout.addStretch(1)
+
+        close_btn = QPushButton("Закрыть", body)
+        close_btn.setFixedWidth(100)
+        close_btn.setStyleSheet(
+            "QPushButton { background: #1d4ed8; color: #fff; border: none;"
+            " border-radius: 8px; padding: 7px 16px; font-weight: 600; }"
+            "QPushButton:hover { background: #1e40af; }"
+        )
+        close_btn.clicked.connect(dialog.accept)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(close_btn)
+        body_layout.addLayout(btn_row)
+
+        layout.addWidget(body)
+        dialog.exec()
 
     def _build_mode_selector(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -251,11 +323,15 @@ class MainWindow(QMainWindow):
         self.versions_mode_btn = self._make_mode_button(
             "Multi-Version", self.MODE_VERSIONS
         )
+        self.one_vs_all_mode_btn = self._make_mode_button(
+            "1 vs All", self.MODE_ONE_VS_ALL
+        )
         self.versions_mode_btn.setAcceptDrops(True)
         self.versions_mode_btn.installEventFilter(self)
 
         layout.addWidget(self.file_mode_btn)
         layout.addWidget(self.versions_mode_btn)
+        layout.addWidget(self.one_vs_all_mode_btn)
         layout.addStretch(1)
         return layout
 
@@ -263,8 +339,10 @@ class MainWindow(QMainWindow):
         self.mode_stack = QStackedWidget(self)
         self.file_page = self._build_file_mode_page()
         self.versions_page = self._build_versions_mode_page()
+        self.one_vs_all_page = self._build_one_vs_all_page()
         self.mode_stack.addWidget(self.file_page)
         self.mode_stack.addWidget(self.versions_page)
+        self.mode_stack.addWidget(self.one_vs_all_page)
         return self.mode_stack
 
     def _build_file_mode_page(self) -> QWidget:
@@ -362,6 +440,42 @@ class MainWindow(QMainWindow):
         return page
 
 
+    def _build_one_vs_all_page(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+        layout.setSpacing(10)
+
+        lists_row = QHBoxLayout()
+        lists_row.setSpacing(12)
+
+        self.ova_reference_zone = FileTileDropZone(
+            "Reference File",
+            allowed_extensions=_ONE_VS_ALL_EXTENSIONS,
+            parent=self,
+        )
+        self.ova_comparison_zone = FileTileDropZone(
+            "Comparison Files",
+            allowed_extensions=_ONE_VS_ALL_EXTENSIONS,
+            parent=self,
+        )
+        self.ova_reference_zone.files_changed.connect(
+            self._on_ova_reference_files_changed
+        )
+        self.ova_comparison_zone.files_changed.connect(self._on_ova_files_changed)
+
+        lists_row.addWidget(self.ova_reference_zone)
+        lists_row.addWidget(self.ova_comparison_zone)
+        layout.addLayout(lists_row, 1)
+
+        controls = QHBoxLayout()
+        self.clear_ova_btn = QPushButton("Clear lists")
+        self.clear_ova_btn.clicked.connect(self._clear_ova_lists)
+        controls.addStretch(1)
+        controls.addWidget(self.clear_ova_btn)
+        layout.addLayout(controls)
+
+        return page
+
     def _build_bottom_panel(self) -> QWidget:
         panel = QFrame(self)
         panel.setObjectName("bottomPanel")
@@ -433,6 +547,10 @@ class MainWindow(QMainWindow):
             self.mode_stack.setCurrentWidget(self.versions_page)
             self.compare_btn.setText("Compare Versions")
             self.versions_mode_btn.setChecked(True)
+        elif mode == self.MODE_ONE_VS_ALL:
+            self.mode_stack.setCurrentWidget(self.one_vs_all_page)
+            self.compare_btn.setText("Compare 1 vs All")
+            self.one_vs_all_mode_btn.setChecked(True)
         else:
             self.mode_stack.setCurrentWidget(self.file_page)
             self.compare_btn.setText("Compare")
@@ -488,6 +606,29 @@ class MainWindow(QMainWindow):
         self.pending_file_a = None
         self._refresh_file_pairing_visuals()
         self._update_excel_source_controls_visibility()
+        self._update_action_state()
+
+    def _on_ova_reference_files_changed(self, paths: list[str]) -> None:
+        if self._ova_ref_updating:
+            return
+        if len(paths) > 1:
+            self._ova_ref_updating = True
+            try:
+                last = paths[-1]
+                self.ova_reference_zone.clear_files()
+                self.ova_reference_zone.add_files([last])
+            finally:
+                self._ova_ref_updating = False
+        self._reset_comparison_output()
+        self._update_action_state()
+
+    def _on_ova_files_changed(self, _paths: list[str]) -> None:
+        self._reset_comparison_output()
+        self._update_action_state()
+
+    def _clear_ova_lists(self) -> None:
+        self.ova_reference_zone.clear_files()
+        self.ova_comparison_zone.clear_files()
         self._update_action_state()
 
     def _update_excel_source_controls_visibility(self) -> None:
@@ -681,6 +822,19 @@ class MainWindow(QMainWindow):
             if len(files) < 2:
                 return
             payload = {"files": files, "output_dir": output_dir}
+        elif self.current_mode == self.MODE_ONE_VS_ALL:
+            output_dir = self.output_line.text().strip()
+            if not output_dir:
+                return
+            reference_paths = self.ova_reference_zone.file_paths()
+            comparison_paths = self.ova_comparison_zone.file_paths()
+            if not reference_paths or not comparison_paths:
+                return
+            payload = {
+                "reference": reference_paths[0],
+                "comparisons": comparison_paths,
+                "output_dir": output_dir,
+            }
         else:
             return
 
@@ -786,6 +940,13 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 f"Done: {len(result.comparisons)} comparisons generated"
             )
+        elif mode == self.MODE_ONE_VS_ALL:
+            result = payload["result"]
+            self.last_html_report = result.summary_html_path
+            self.last_excel_report = result.summary_excel_path
+            self.statusBar().showMessage(
+                f"Done: reference vs {len(result.comparisons)} file(s)"
+            )
 
         self.open_html_btn.setVisible(bool(self.last_html_report))
         self.open_excel_btn.setVisible(bool(self.last_excel_report))
@@ -861,6 +1022,10 @@ class MainWindow(QMainWindow):
             enabled = bool(all_paired and output_ok)
         elif self.current_mode == self.MODE_VERSIONS:
             enabled = bool(self.version_list.count() >= 2 and output_ok)
+        elif self.current_mode == self.MODE_ONE_VS_ALL:
+            ref_files = self.ova_reference_zone.file_paths()
+            cmp_files = self.ova_comparison_zone.file_paths()
+            enabled = bool(len(ref_files) == 1 and len(cmp_files) >= 1 and output_ok)
         self.compare_btn.setEnabled(enabled and self.worker is None)
 
     @staticmethod

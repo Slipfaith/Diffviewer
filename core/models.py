@@ -214,3 +214,14 @@ class MultiVersionResult:
     report_paths: list[list[str]] = field(default_factory=list)
     summary_report_path: str | None = None
     summary_excel_path: str | None = None
+
+
+@dataclass
+class OneVsAllResult:
+    reference_path: str
+    comparison_paths: list[str]
+    reference_doc: ParsedDocument
+    comparison_docs: list[ParsedDocument]
+    comparisons: list[ComparisonResult]
+    summary_html_path: str | None = None
+    summary_excel_path: str | None = None

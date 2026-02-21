@@ -838,6 +838,258 @@ class SummaryReporter:
             .replace("\n", "<br>")
         )
 
+    def generate_one_vs_all(self, result, output_path: str) -> str:
+        output_file = Path(output_path)
+        if output_file.suffix.lower() != ".html":
+            output_file = output_file.with_suffix(".html")
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        comp_names = [Path(p).name for p in result.comparison_paths]
+        rows = self._build_one_vs_all_rows(result)
+
+        changes_per_file = [0] * len(comp_names)
+        for row in rows:
+            for idx in range(1, len(row["states"])):
+                if row["states"][idx] not in {"same", "base"}:
+                    changes_per_file[idx - 1] += 1
+
+        stat_blocks: list[str] = [
+            "<div class=\"stat\">"
+            f"<div class=\"stat-label\">Reference</div>"
+            f"<div class=\"stat-value\">{self._escape(Path(result.reference_path).name)}</div>"
+            "</div>"
+        ]
+        for idx, name in enumerate(comp_names):
+            stat_blocks.append(
+                "<div class=\"stat\">"
+                f"<div class=\"stat-label\">Changes in {self._escape(name)}</div>"
+                f"<div class=\"stat-value\">{changes_per_file[idx]}</div>"
+                "</div>"
+            )
+
+        header_cells = [
+            "<th class=\"col-segment-id\">Seg ID</th>",
+            "<th>Source</th>",
+            "<th>Target</th>",
+        ]
+        for idx in range(1, len(comp_names) + 1):
+            header_cells.append(f"<th>Target {idx}</th>")
+
+        body_rows: list[str] = []
+        for row in rows:
+            row_changed = any(s not in {"same", "base"} for s in row["states"][1:])
+            ref_target = row["targets"][0]
+            cells = [
+                (
+                    f"<td class=\"col-segment-id\" title=\"{self._escape(row['id'])}\">"
+                    f"{self._escape(row['id'])}"
+                    "</td>"
+                ),
+                f"<td>{self._escape_multiline(row['source'])}</td>",
+                f"<td class=\"state-base\">{self._escape_multiline(ref_target)}</td>",
+            ]
+            for idx in range(1, len(row["targets"])):
+                target = row["targets"][idx]
+                state = row["states"][idx]
+                cell_classes = [f"state-{state}"]
+                rendered = self._render_version_target(
+                    previous_target=ref_target,
+                    current_target=target,
+                    state=state,
+                    version_index=idx,
+                )
+                cells.append(
+                    f"<td class=\"{' '.join(cell_classes)}\">{rendered}</td>"
+                )
+            body_rows.append(
+                f"<tr class=\"version-row\" data-changed=\"{'1' if row_changed else '0'}\">"
+                + "".join(cells)
+                + "</tr>"
+            )
+
+        extra_styles = """
+.version-matrix { overflow-x: auto; }
+.version-matrix table { min-width: 900px; }
+.version-matrix .col-segment-id {
+  width: 6ch;
+  max-width: 6ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.version-matrix .state-base { color: #334155; }
+.version-matrix .state-same { color: #111827; }
+.version-matrix .state-missing { color: #94a3b8; font-style: italic; }
+.version-matrix [class*="version-ins-"] {
+  text-decoration: none;
+  font-weight: 600;
+}
+.version-matrix [class*="version-del-"] {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.version-matrix .symbol-del {
+  opacity: 0.82;
+}
+.version-matrix .ws-change {
+  background: #e5e7eb;
+  color: #111827;
+  padding: 0 1px;
+  border-radius: 3px;
+}
+"""
+        version_color_styles = self._build_version_color_styles(len(comp_names) + 1)
+        script = """
+(function () {
+  const buttons = Array.from(document.querySelectorAll('.filter-btn[data-filter]'));
+  const rows = Array.from(document.querySelectorAll('tr.version-row'));
+  function applyFilter(mode) {
+    rows.forEach((row) => {
+      const changed = row.getAttribute('data-changed') === '1';
+      row.classList.toggle('hidden', mode === 'changed' && !changed);
+    });
+    buttons.forEach((button) => {
+      button.classList.toggle('active', button.getAttribute('data-filter') === mode);
+    });
+  }
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const mode = button.getAttribute('data-filter') || 'changed';
+      applyFilter(mode);
+    });
+  });
+  applyFilter('changed');
+})();
+"""
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>1 vs All</title>
+  <style>
+{self._styles}
+{extra_styles}
+{version_color_styles}
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <h1>1 vs All: {self._escape(Path(result.reference_path).name)}</h1>
+  </header>
+  <section class="stats">
+    {''.join(stat_blocks)}
+  </section>
+  <section class="filters">
+    <button class="filter-btn" type="button" data-filter="all">All text</button>
+    <button class="filter-btn active" type="button" data-filter="changed">Changed</button>
+  </section>
+  <section class="version-matrix">
+    <table class="report-table summary-table">
+      <thead>
+        <tr>{''.join(header_cells)}</tr>
+      </thead>
+      <tbody>
+        {''.join(body_rows)}
+      </tbody>
+    </table>
+  </section>
+  <script>
+{script}
+  </script>
+</body>
+</html>"""
+
+        output_file.write_text(html_content, encoding="utf-8")
+        result.summary_html_path = str(output_file)
+        return str(output_file)
+
+    def _build_one_vs_all_rows(self, result) -> list[dict]:
+        """Build rows for 1-vs-All report.
+        targets[0] = reference (plain), targets[1..] = comparison files.
+        States compare each comparison against the reference, not the previous."""
+        ref_index = self._build_doc_index(result.reference_doc.segments)
+        comp_indices = [
+            self._build_doc_index(doc.segments) for doc in result.comparison_docs
+        ]
+
+        ordered_ids: list[str] = []
+        seen_ids: set[str] = set()
+        seen_source_keys: set[str] = set()
+
+        for segment in ref_index["segments"]:
+            seen_ids.add(segment.id)
+            ordered_ids.append(segment.id)
+            source_key = self._compact_source(segment.source or "")
+            if source_key:
+                seen_source_keys.add(source_key)
+
+        for index in comp_indices:
+            for segment in index["segments"]:
+                if segment.id in seen_ids:
+                    continue
+                source_key = self._compact_source(segment.source or "")
+                if source_key and source_key in seen_source_keys:
+                    continue
+                seen_ids.add(segment.id)
+                ordered_ids.append(segment.id)
+                if source_key:
+                    seen_source_keys.add(source_key)
+
+        rows: list[dict] = []
+        for seg_id in ordered_ids:
+            ref_seg = ref_index["by_id"].get(seg_id)
+            source = self._first_non_empty_source([ref_seg] if ref_seg else [])
+            ref_target = ""
+            if ref_seg is not None:
+                ref_target = getattr(ref_seg, "target", "") or ""
+                if not source:
+                    source_val = getattr(ref_seg, "source", None)
+                    if source_val:
+                        source = source_val
+            elif source:
+                found = self._find_segment_by_source(ref_index, source)
+                if found:
+                    ref_target = getattr(found, "target", "") or ""
+
+            targets = [ref_target]
+            states = ["base"]
+
+            for comp_index in comp_indices:
+                comp_seg = comp_index["by_id"].get(seg_id)
+                if comp_seg is None and source:
+                    comp_seg = self._find_segment_by_source(comp_index, source)
+
+                if comp_seg is None:
+                    targets.append("")
+                    states.append("missing" if ref_target else "same")
+                else:
+                    cmp_target = getattr(comp_seg, "target", "") or ""
+                    targets.append(cmp_target)
+                    if not source:
+                        source_val = getattr(comp_seg, "source", None)
+                        if source_val:
+                            source = source_val
+                    if cmp_target == ref_target:
+                        states.append("same")
+                    elif not ref_target and cmp_target:
+                        states.append("added")
+                    elif ref_target and not cmp_target:
+                        states.append("missing")
+                    else:
+                        states.append("changed")
+
+            rows.append(
+                {
+                    "id": seg_id,
+                    "source": source,
+                    "targets": targets,
+                    "states": states,
+                }
+            )
+
+        return rows
+
     def _stat_block(self, label: str, value: int) -> str:
         return (
             "<div class=\"stat\">"

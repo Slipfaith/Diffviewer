@@ -446,6 +446,153 @@ class ExcelReporter(BaseReporter):
                     counts[idx] += 1
         return counts
 
+    def generate_one_vs_all(self, result, output_path: str) -> str:
+        output_file = Path(output_path)
+        if output_file.suffix.lower() != self.output_extension:
+            output_file = output_file.with_suffix(self.output_extension)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        from reporters.summary_reporter import SummaryReporter
+        rows = SummaryReporter()._build_one_vs_all_rows(result)
+        comp_names = [Path(p).name for p in result.comparison_paths]
+
+        workbook = xlsxwriter.Workbook(
+            str(output_file),
+            {
+                "strings_to_formulas": False,
+                "strings_to_numbers": False,
+                "strings_to_urls": False,
+            },
+        )
+        try:
+            ws = workbook.add_worksheet("1 vs All")
+            stats_ws = workbook.add_worksheet("Statistics")
+
+            header_fmt = workbook.add_format(
+                {"bold": True, "bg_color": "#f3f4f6", "text_wrap": True}
+            )
+            unchanged_fmt = workbook.add_format(
+                {"bg_color": "#f8fafc", "text_wrap": True}
+            )
+            changed_fmt = workbook.add_format(
+                {"bg_color": "#fffbeb", "text_wrap": True}
+            )
+            base_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#334155"}
+            )
+            same_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#111827"}
+            )
+            missing_fmt = workbook.add_format(
+                {"text_wrap": True, "font_color": "#94a3b8", "italic": True}
+            )
+
+            version_palette = [
+                "#b45309",
+                "#0369a1",
+                "#6d28d9",
+                "#15803d",
+                "#be185d",
+                "#4338ca",
+            ]
+            ins_formats = []
+            for idx in range(len(comp_names)):
+                color = version_palette[idx % len(version_palette)]
+                ins_formats.append(
+                    workbook.add_format(
+                        {"font_color": color, "bold": True, "text_wrap": True}
+                    )
+                )
+
+            show_source = any(bool(row["source"].strip()) for row in rows)
+
+            headers = ["Seg ID"]
+            if show_source:
+                headers.append("Source")
+            headers.append("Target")
+            for idx in range(1, len(comp_names) + 1):
+                headers.append(f"Target {idx}")
+            ws.write_row(0, 0, headers, header_fmt)
+
+            col_id = 0
+            col_source: int | None = 1 if show_source else None
+            col_ref = 2 if show_source else 1
+            col_cmp_start = col_ref + 1
+
+            ws.set_column(col_id, col_id, 10)
+            if col_source is not None:
+                ws.set_column(col_source, col_source, 30)
+            ws.set_column(col_ref, col_ref, 50)
+            for i in range(len(comp_names)):
+                ws.set_column(col_cmp_start + i, col_cmp_start + i, 50)
+            ws.freeze_panes(1, 0)
+
+            row_num = 1
+            for row_data in rows:
+                row_changed = any(
+                    s not in {"base", "same"} for s in row_data["states"][1:]
+                )
+                row_bg_fmt = changed_fmt if row_changed else unchanged_fmt
+
+                self._write_text(ws, row_num, col_id, row_data["id"], row_bg_fmt)
+                if col_source is not None:
+                    self._write_text(
+                        ws, row_num, col_source, row_data["source"], row_bg_fmt
+                    )
+
+                ref_target = row_data["targets"][0]
+                self._write_text(ws, row_num, col_ref, ref_target, base_fmt)
+
+                targets = row_data["targets"]
+                states = row_data["states"]
+                for idx in range(1, len(targets)):
+                    col = col_cmp_start + idx - 1
+                    target = targets[idx]
+                    state = states[idx]
+                    if state == "same":
+                        self._write_text(ws, row_num, col, target, same_fmt)
+                    elif state == "missing":
+                        self._write_text(ws, row_num, col, "", missing_fmt)
+                    elif state in {"changed", "added"}:
+                        self._write_version_rich(
+                            ws,
+                            row_num,
+                            col,
+                            ref_target,
+                            target,
+                            state,
+                            ins_formats[idx - 1],
+                            same_fmt,
+                        )
+                    else:
+                        self._write_text(ws, row_num, col, target, row_bg_fmt)
+
+                row_num += 1
+
+            last_col = col_cmp_start + len(comp_names) - 1
+            ws.autofilter(0, 0, max(1, row_num - 1), last_col)
+
+            stats_ws.set_column(0, 0, 32)
+            stats_ws.set_column(1, 1, 14)
+            stats_ws.write(
+                0, 0,
+                f"Reference: {Path(result.reference_path).name}",
+                header_fmt,
+            )
+            stats_ws.write(0, 1, "")
+            for idx, name in enumerate(comp_names):
+                changes = sum(
+                    1
+                    for row in rows
+                    if row["states"][idx + 1] not in {"base", "same"}
+                )
+                stats_ws.write(idx + 1, 0, f"Changes in {name}", header_fmt)
+                stats_ws.write(idx + 1, 1, changes)
+        finally:
+            workbook.close()
+
+        return str(output_file)
+
     def generate_from_html(self, html_path: str, output_path: str | None = None) -> str:
         html_file = Path(html_path)
         content = html_file.read_text(encoding="utf-8")

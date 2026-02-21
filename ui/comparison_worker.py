@@ -106,6 +106,15 @@ class ComparisonWorker(QThread):
                 self.finished.emit({"mode": "versions", "result": result})
                 return
 
+            if self.mode == "one_vs_all":
+                result = orchestrator.compare_one_vs_all(
+                    reference_path=str(self.payload["reference"]),
+                    comparison_paths=[str(p) for p in self.payload["comparisons"]],
+                    output_dir=str(self.payload["output_dir"]),
+                )
+                self.finished.emit({"mode": "one_vs_all", "result": result})
+                return
+
             self.error.emit(f"Unknown worker mode: {self.mode}")
         except Exception as exc:  # pragma: no cover - signal path
             self.error.emit(str(exc))
