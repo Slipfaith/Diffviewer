@@ -1,58 +1,43 @@
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
 
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
 
-# Distribution / packaging
+# Build
 build/
 dist/
 *.egg-info/
 .eggs/
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.coverage
-.tox/
-.nox/
+# Testing
 .pytest_cache/
-.coverage.*
-
-# IDE / Editor directories and files
-.idea/
-.vscode/
-*.sublime-project
-*.sublime-workspace
-
-# OS generated files
-.DS_Store
-.Thumbs.db
+.coverage*
+htmlcov/
+test_output/
+test_out/
 
 # Logs
 *.log
+*.tmp
 
-# Database files
-*.sqlite3
+# OS
+.DS_Store
+Thumbs.db
 
-# generated artifacts
-test_output/
+# IDE
+.idea/
+.vscode/
 
-# dotnet build artifacts
+# Dotnet (if used in tools)
 tools/**/bin/
 tools/**/obj/
-*.exe
-*.dll
-*.pdb+
-*.html
-*.xlsx
-*.md
 
-.claude/
-test_out/
+# Generated reports only
+reports/
+*.report.html
+tmp_*.xlsx
+
+output/
