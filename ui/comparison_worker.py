@@ -23,6 +23,8 @@ class ComparisonWorker(QThread):
         orchestrator = Orchestrator(on_progress=self._emit_progress)
         try:
             if self.mode == "file":
+                compare_by_columns: bool = bool(self.payload.get("compare_by_columns", False))
+
                 if "pairs" in self.payload:
                     pairs = list(self.payload["pairs"])
                     if len(pairs) <= 1:
@@ -38,13 +40,20 @@ class ComparisonWorker(QThread):
                             )
                             return
                         file_a, file_b = pairs[0]
-                        outputs = orchestrator.compare_files(
-                            str(file_a),
-                            str(file_b),
-                            str(self.payload["output_dir"]),
-                            excel_source_column_a=self.payload.get("excel_source_col_a"),
-                            excel_source_column_b=self.payload.get("excel_source_col_b"),
-                        )
+                        if compare_by_columns:
+                            outputs = orchestrator.compare_xlsx_by_columns(
+                                str(file_a),
+                                str(file_b),
+                                str(self.payload["output_dir"]),
+                            )
+                        else:
+                            outputs = orchestrator.compare_files(
+                                str(file_a),
+                                str(file_b),
+                                str(self.payload["output_dir"]),
+                                excel_source_column_a=self.payload.get("excel_source_col_a"),
+                                excel_source_column_b=self.payload.get("excel_source_col_b"),
+                            )
                         self.finished.emit(
                             {
                                 "mode": "file",
@@ -72,13 +81,20 @@ class ComparisonWorker(QThread):
                     )
                     return
 
-                outputs = orchestrator.compare_files(
-                    self.payload["file_a"],
-                    self.payload["file_b"],
-                    self.payload["output_dir"],
-                    excel_source_column_a=self.payload.get("excel_source_col_a"),
-                    excel_source_column_b=self.payload.get("excel_source_col_b"),
-                )
+                if compare_by_columns:
+                    outputs = orchestrator.compare_xlsx_by_columns(
+                        self.payload["file_a"],
+                        self.payload["file_b"],
+                        self.payload["output_dir"],
+                    )
+                else:
+                    outputs = orchestrator.compare_files(
+                        self.payload["file_a"],
+                        self.payload["file_b"],
+                        self.payload["output_dir"],
+                        excel_source_column_a=self.payload.get("excel_source_col_a"),
+                        excel_source_column_b=self.payload.get("excel_source_col_b"),
+                    )
                 self.finished.emit(
                     {
                         "mode": "file",

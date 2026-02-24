@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python -m pytest:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "Bash(cd:*)",
+      "Bash(python:*)"
     ]
   }
 }

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QButtonGroup,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -399,6 +400,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.excel_source_options_widget)
         self.excel_source_options_widget.setVisible(False)
 
+        self.excel_col_compare_widget = QWidget(self)
+        col_compare_row = QHBoxLayout(self.excel_col_compare_widget)
+        col_compare_row.setContentsMargins(0, 0, 0, 0)
+        col_compare_row.setSpacing(8)
+        self.excel_col_compare_checkbox = QCheckBox("Сравнить по колонкам", self)
+        self.excel_col_compare_checkbox.stateChanged.connect(self._on_col_compare_toggled)
+        col_compare_row.addWidget(self.excel_col_compare_checkbox)
+        col_compare_row.addStretch(1)
+        layout.addWidget(self.excel_col_compare_widget)
+        self.excel_col_compare_widget.setVisible(False)
+
         self._refresh_file_pairing_visuals()
         self._update_excel_source_controls_visibility()
         return page
@@ -538,6 +550,8 @@ class MainWindow(QMainWindow):
     def _set_mode(self, mode: str) -> None:
         self.current_mode = mode
         self._reset_comparison_output()
+        if mode != self.MODE_FILE:
+            self.excel_col_compare_checkbox.setChecked(False)
         if mode == self.MODE_FILE:
             self.mode_stack.setCurrentWidget(self.file_page)
             self.compare_btn.setText("Compare")
@@ -632,11 +646,20 @@ class MainWindow(QMainWindow):
         self._update_action_state()
 
     def _update_excel_source_controls_visibility(self) -> None:
-        should_show = any(
+        is_file_mode = self.current_mode == self.MODE_FILE
+        should_show = is_file_mode and any(
             Path(path).suffix.lower() in {".xlsx", ".xls"}
             for path in self.file_a_zone.file_paths() + self.file_b_zone.file_paths()
         )
         self.excel_source_options_widget.setVisible(should_show)
+        self.excel_col_compare_widget.setVisible(should_show)
+        if not should_show:
+            self.excel_col_compare_checkbox.setChecked(False)
+
+    def _on_col_compare_toggled(self, state: int) -> None:
+        enabled = state == 0  # 0 = unchecked → inputs enabled; 2 = checked → disabled
+        self.excel_source_col_a_input.setEnabled(enabled)
+        self.excel_source_col_b_input.setEnabled(enabled)
 
     def _cleanup_file_pair_state(self) -> None:
         files_a = set(self.file_a_zone.file_paths())
@@ -808,11 +831,16 @@ class MainWindow(QMainWindow):
                 except ValueError as exc:
                     QMessageBox.warning(self, "Invalid Excel source column", str(exc))
                     return
+            compare_by_columns = (
+                self.excel_col_compare_widget.isVisible()
+                and self.excel_col_compare_checkbox.isChecked()
+            )
             payload = {
                 "pairs": pairs,
                 "output_dir": output_dir,
                 "excel_source_col_a": excel_source_col_a,
                 "excel_source_col_b": excel_source_col_b,
+                "compare_by_columns": compare_by_columns,
             }
         elif self.current_mode == self.MODE_VERSIONS:
             output_dir = self.output_line.text().strip()

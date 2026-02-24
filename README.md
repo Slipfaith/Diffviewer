@@ -10,6 +10,7 @@ Window title in GUI: **Diff View**.
 - File vs File comparison with multiple files per side.
 - Automatic file pairing by name + manual pairing override.
 - Multi-Version chain comparison with a single summary HTML report.
+- **Excel column-by-column comparison** with inline track-changes markup (see below).
 - HTML reports (interactive).
 - Excel reports with inline rich diff.
 - DOCX Track Changes export for DOCX comparison (when Microsoft Word is available).
@@ -39,6 +40,26 @@ Window title in GUI: **Diff View**.
   - pale red: unmatched
   - pale orange: currently selected source file
   - dashed border on candidates
+
+### Excel Column-by-Column Comparison
+
+When both files in a pair are `.xlsx`, an additional checkbox appears:
+**"Сравнить по колонкам"** (Compare by columns).
+
+When checked:
+- The Source column selector is disabled (not needed in this mode).
+- A `column_comparison_*.xlsx` report is generated instead of the standard HTML + Excel reports.
+- The report preserves the original table structure (same columns, same rows).
+- Changes are shown inline inside each cell, column A vs column A, column B vs column B, etc. Sheets are matched by position.
+
+Markup inside cells:
+- 🔴 red strikethrough — text removed in file B
+- 🔵 blue — text added in file B
+- black — unchanged text
+
+> The diff engine is the same word-level `TextDiffer` used by all other reports.
+
+---
 
 ## 2) Multi-Version
 
@@ -75,6 +96,8 @@ To avoid accidental overwrites, timestamp now includes seconds where applicable:
 - File vs File:
   - `changereport_DD-MM-YY--HH-MM-SS.html`
   - `changereport_DD-MM-YY--HH-MM-SS.xlsx`
+- File vs File (column mode):
+  - `column_comparison_DD-MM-YY--HH-MM-SS.xlsx`
 - Multi-Version:
   - `versions_summary_DD-MM-YY--HH-MM-SS.html`
 

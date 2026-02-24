@@ -26,6 +26,7 @@ from reporters.docx_reporter import DocxTrackChangesReporter
 from reporters.excel_reporter import ExcelReporter
 from reporters.html_reporter import HtmlReporter
 from reporters.summary_reporter import SummaryReporter
+from reporters.xlsx_column_reporter import XlsxColumnReporter
 
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,30 @@ class Orchestrator:
 
         self._progress("Done", 1.0)
         return outputs
+
+    def compare_xlsx_by_columns(
+        self,
+        file_a: str,
+        file_b: str,
+        output_dir: str,
+    ) -> list[str]:
+        """Compare two Excel files column-by-column with inline rich-text diffs."""
+        ext_a = Path(file_a).suffix.lower()
+        ext_b = Path(file_b).suffix.lower()
+        if ext_a != ".xlsx" or ext_b != ".xlsx":
+            raise UnsupportedFormatError(f"column comparison requires .xlsx, got {ext_a} vs {ext_b}")
+
+        self._progress("Generating column comparison report", 0.5)
+        output_dir_path = Path(output_dir)
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+        output_path = output_dir_path / f"column_comparison_{timestamp_label}.xlsx"
+
+        XlsxColumnReporter().generate(file_a, file_b, str(output_path))
+
+        self._progress("Done", 1.0)
+        return [str(output_path)]
 
     def compare_file_pairs(
         self,
