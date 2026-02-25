@@ -161,6 +161,18 @@ class Orchestrator:
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
+        # Check once whether docx track-changes generation is possible
+        has_docx_pairs = any(Path(fa).suffix.lower() == ".docx" for fa, fb in pairs)
+        docx_reporter: DocxTrackChangesReporter | None = None
+        if has_docx_pairs:
+            _reporter = DocxTrackChangesReporter()
+            if _reporter.is_available():
+                docx_reporter = _reporter
+            else:
+                logger.warning(
+                    "Microsoft Word not found — per-file .docx track-changes reports will be skipped"
+                )
+
         successful_results: list[tuple[str, ComparisonResult]] = []
         file_results: list[dict[str, object]] = []
         total = len(pairs) if pairs else 1
@@ -178,6 +190,22 @@ class Orchestrator:
                     excel_source_column_b=excel_source_column_b,
                 )
                 self.last_result = result
+
+                # Generate per-pair docx track-changes report
+                pair_report_paths: list[str] = []
+                if Path(file_a).suffix.lower() == ".docx" and docx_reporter is not None:
+                    pair_subdir = output_dir_path / self._safe_stem(Path(file_a).name)
+                    pair_subdir.mkdir(parents=True, exist_ok=True)
+                    timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+                    docx_out = pair_subdir / f"changereport_{timestamp_label}.docx"
+                    try:
+                        generated = docx_reporter.generate(result, str(docx_out))
+                        pair_report_paths.append(generated)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to generate docx track-changes for %s: %s", file_a, exc
+                        )
+
                 pair_label = f"{Path(file_a).name} vs {Path(file_b).name}"
                 successful_results.append((pair_label, result))
                 file_results.append(
@@ -186,6 +214,7 @@ class Orchestrator:
                         "file_b": file_b,
                         "comparison": result,
                         "error": None,
+                        "report_paths": pair_report_paths,
                     }
                 )
             except Exception as exc:
@@ -195,6 +224,7 @@ class Orchestrator:
                         "file_b": file_b,
                         "comparison": None,
                         "error": str(exc),
+                        "report_paths": [],
                     }
                 )
 
@@ -208,6 +238,10 @@ class Orchestrator:
             excel_path = output_dir_path / f"{base_name}.xlsx"
             outputs.append(HtmlReporter().generate_multi(successful_results, str(html_path)))
             outputs.append(ExcelReporter().generate_multi(successful_results, str(excel_path)))
+
+            # Include per-pair docx paths in outputs so callers can inspect them
+            for fr in file_results:
+                outputs.extend(fr.get("report_paths", []))  # type: ignore[arg-type]
 
             all_changes = [
                 change
