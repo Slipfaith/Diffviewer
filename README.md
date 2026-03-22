@@ -1,131 +1,141 @@
-# Diff View
+# Diffviewer
 
-`Diff View` is a Windows desktop tool for deterministic comparison of localization and office files.
-It supports visual diff reporting and multi-version comparison.
-
-Window title in GUI: **Diff View**.
-
-## Key Features
-
-- File vs File comparison with multiple files per side.
-- Automatic file pairing by name + manual pairing override.
-- Multi-Version chain comparison with a single summary HTML report.
-- **Excel column-by-column comparison** with inline track-changes markup (see below).
-- HTML reports (interactive).
-- Excel reports with inline rich diff.
-- DOCX Track Changes export for DOCX comparison (when Microsoft Word is available).
-
-## Supported Input Formats
-
-- XLIFF family: `.xliff`, `.xlf`, `.sdlxliff`, `.mqxliff`
-- Text: `.txt`, `.srt`
-- Office: `.xlsx`, `.xls`, `.pptx`, `.docx`
-
-## GUI Modes
-
-## 1) File vs File
-
-- Drag and drop multiple files to both zones (`File A` / `File B`).
-- You can also drag folders into zones. Matching files from the folder are added.
-- Zones are clickable; double-click opens file picker.
-- Right-click on a tile removes the file from the list.
-- File tiles show short names and tooltip with full name.
-- Automatic pairing is based on equal filename (case-insensitive).
-- Manual pairing:
-  - left-click a file in `File A` to select it;
-  - files in `File B` become selectable candidates;
-  - click a candidate in `File B` to set mapping.
-- Tile colors:
-  - pale green: matched
-  - pale red: unmatched
-  - pale orange: currently selected source file
-  - dashed border on candidates
-
-### Excel Column-by-Column Comparison
-
-When both files in a pair are `.xlsx`, an additional checkbox appears:
-**"Сравнить по колонкам"** (Compare by columns).
-
-When checked:
-- The Source column selector is disabled (not needed in this mode).
-- A `column_comparison_*.xlsx` report is generated instead of the standard HTML + Excel reports.
-- The report preserves the original table structure (same columns, same rows).
-- Changes are shown inline inside each cell, column A vs column A, column B vs column B, etc. Sheets are matched by position.
-
-Markup inside cells:
-- 🔴 red strikethrough — text removed in file B
-- 🔵 blue — text added in file B
-- black — unchanged text
-
-> The diff engine is the same word-level `TextDiffer` used by all other reports.
+> **RU:** Инструмент для визуального сравнения файлов локализации и офисных документов на Windows.
+> **EN:** A Windows desktop tool for deterministic visual comparison of localization and office files.
 
 ---
 
-## 2) Multi-Version
+## Возможности / Features
 
-- Load 2+ files of the same format.
-- Reorder by drag-and-drop in the list.
-- Comparison is sequential (`v1 -> v2 -> v3 ...`).
-- Generates one summary HTML report with filters and per-version highlighting.
+| RU | EN |
+|----|----|
+| Сравнение файл-к-файлу, несколько файлов с каждой стороны | File vs File comparison, multiple files per side |
+| Автоматическое сопоставление по имени + ручная настройка | Automatic pairing by filename + manual override |
+| Цепочечное сравнение нескольких версий (`v1 → v2 → v3`) | Multi-version chained comparison (`v1 → v2 → v3`) |
+| Пакетная обработка папок | Batch folder processing |
+| Режим Excel: сравнение колонка-к-колонке с разметкой внутри ячеек | Excel column-by-column mode with inline cell markup |
+| Интерактивные HTML-отчёты | Interactive HTML reports |
+| Excel-отчёты с встроенным diff | Excel reports with inline rich diff |
+| Экспорт DOCX с Track Changes (при наличии Microsoft Word) | DOCX Track Changes export (requires Microsoft Word) |
+| GUI и CLI режимы | GUI and CLI modes |
+
+---
+
+## Поддерживаемые форматы / Supported Formats
+
+| Тип / Type | Форматы / Formats |
+|------------|-------------------|
+| XLIFF | `.xliff`, `.xlf`, `.sdlxliff`, `.mqxliff` |
+| Текст / Text | `.txt`, `.srt` |
+| Office | `.xlsx`, `.xls`, `.pptx`, `.docx` |
+
+---
+
+## GUI
+
+### Режим «Файл vs Файл» / File vs File Mode
+
+- Перетащите файлы или папки в зоны **File A** / **File B**
+- Двойной клик открывает файловый менеджер
+- Правый клик на плашке — удалить файл из списка
+- Цвета плашек / Tile colors:
+  - 🟢 бледно-зелёный — файл сопоставлен / matched
+  - 🔴 бледно-красный — без пары / unmatched
+  - 🟠 оранжевый — выбранный источник / selected source
+
+### Режим Excel «Сравнить по колонкам» / Excel Column Comparison
+
+При сравнении двух `.xlsx`-файлов доступен дополнительный режим:
+
+- Сохраняет оригинальную структуру таблицы
+- Изменения показываются прямо внутри ячеек
+- 🔴 красный зачёркнутый — удалённый текст / deleted text
+- 🔵 синий — добавленный текст / added text
+- Чёрный — без изменений / unchanged
+
+### Режим «Мультиверсия» / Multi-Version Mode
+
+- Загрузите 2+ файла одного формата
+- Переупорядочьте перетаскиванием
+- Сравнение идёт последовательно: `v1 → v2 → v3 ...`
+- Один сводный HTML-отчёт с фильтрами по версиям
+
+---
 
 ## CLI
 
-`main.py` starts GUI with no arguments, and CLI with arguments.
-
-Examples:
+`main.py` без аргументов запускает GUI. С аргументами — CLI.
 
 ```bash
+# Запуск GUI / Launch GUI
 python main.py
-python cli.py formats
-python cli.py compare tests/fixtures/sample_a.xliff tests/fixtures/sample_b.xliff -o ./output/
+
+# Сравнить два файла / Compare two files
+python cli.py compare old.xliff new.xliff -o ./output/
+
+# Пакетное сравнение папок / Batch compare folders
 python cli.py batch folder_a/ folder_b/ -o ./output/
+
+# Сравнение версий / Compare versions chain
 python cli.py versions v1.xliff v2.xliff v3.xliff -o ./output/
+
+# Список поддерживаемых форматов / List supported formats
+python cli.py formats
 ```
 
-Available CLI commands:
+### Вывод статистики / Statistics output
 
-- `compare` - compare two files
-- `batch` - compare two folders
-- `versions` - compare chain of versions
-- `formats` - print supported formats
+```
+Statistics: total=120 added=5 deleted=3 modified=12 unchanged=100 change%=16.7%
+```
 
-## Report Naming
+---
 
-To avoid accidental overwrites, timestamp now includes seconds where applicable:
+## Именование отчётов / Report Naming
 
-- File vs File:
-  - `changereport_DD-MM-YY--HH-MM-SS.html`
-  - `changereport_DD-MM-YY--HH-MM-SS.xlsx`
-- File vs File (column mode):
-  - `column_comparison_DD-MM-YY--HH-MM-SS.xlsx`
-- Multi-Version:
-  - `versions_summary_DD-MM-YY--HH-MM-SS.html`
+| Режим / Mode | Файл / File |
+|---|---|
+| File vs File | `changereport_DD-MM-YY--HH-MM-SS.html` / `.xlsx` |
+| Excel column mode | `column_comparison_DD-MM-YY--HH-MM-SS.xlsx` |
+| Multi-Version | `versions_summary_DD-MM-YY--HH-MM-SS.html` |
 
-## Install From Source
+---
+
+## Установка / Installation
+
+### Исполняемый файл / Executable
+
+Скачайте `.exe` из [Releases](../../releases) и запустите — установка не нужна.
+Download `.exe` from [Releases](../../releases) and run — no installation needed.
+
+### Из исходников / From Source
 
 ```bash
+git clone https://github.com/Slipfaith/Diffviewer.git
+cd Diffviewer
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
 
-## Build Single EXE (No Console)
-
-Recommended spec:
+### Сборка EXE / Build EXE
 
 ```bash
 pyinstaller main.spec
+# → dist\Diffviewer.exe
 ```
 
-Output:
+---
 
-- `dist\Diffviewer.exe`
-
-The executable uses `Diffviewer.ico` for window/app/taskbar icon.
-
-## Requirements
+## Требования / Requirements
 
 - Windows
 - Python 3.11+
-- Microsoft Word (optional, only for DOCX Track Changes export)
+- Microsoft Word *(опционально / optional — только для DOCX Track Changes export)*
+
+---
+
+## Лицензия / License
+
+MIT
