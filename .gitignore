@@ -41,3 +41,15 @@ reports/
 tmp_*.xlsx
 
 output/
+
+# Test/sample data folders
+pptx/
+pdf/
+samples/
+
+# Changelog / release notes (keep in repo root via CHANGELOG.md, ignore loose files)
+release_notes*.txt
+release_notes*.md
+
+# Claude session data
+.claude/

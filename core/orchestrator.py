@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from core.diff_engine import DiffEngine
+from core.diff_engine import ComparisonOptions, DiffEngine
 from core.models import (
     BatchFileResult,
     BatchResult,
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     on_progress: Callable[[str, float], None] | None = None
     last_result: ComparisonResult | None = None
+    options: ComparisonOptions | None = None
 
     def __post_init__(self) -> None:
         ParserRegistry.discover()
@@ -93,7 +94,7 @@ class Orchestrator:
         self._normalize_document_text_entities(doc_b, decode_entities=decode_entities)
 
         self._progress("Comparing documents", 0.6)
-        result = DiffEngine.compare(doc_a, doc_b)
+        result = DiffEngine.compare(doc_a, doc_b, self.options)
         self.last_result = result
 
         self._progress("Generating report", 0.8)
@@ -386,7 +387,7 @@ class Orchestrator:
                 f"Comparing version {step} to {step + 1}...",
                 0.5 + (step / max(1, total_compare)) * 0.35,
             )
-            comparisons.append(DiffEngine.compare(documents[idx], documents[idx + 1]))
+            comparisons.append(DiffEngine.compare(documents[idx], documents[idx + 1], self.options))
 
         multi = MultiVersionResult(
             file_paths=files,
@@ -398,12 +399,13 @@ class Orchestrator:
         self._progress("Generating summary report", 0.88)
         timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
         summary_path = output_dir_path / f"versions_summary_{timestamp_label}.html"
-        SummaryReporter().generate_versions(multi, str(summary_path))
+        _ignore_case = self.options.ignore_case if self.options else False
+        SummaryReporter().generate_versions(multi, str(summary_path), ignore_case=_ignore_case)
 
         self._progress("Generating Excel report", 0.94)
         summary_excel_path = output_dir_path / f"versions_summary_{timestamp_label}.xlsx"
         multi.summary_excel_path = ExcelReporter().generate_versions(
-            multi, str(summary_excel_path)
+            multi, str(summary_excel_path), ignore_case=_ignore_case
         )
 
         self._progress("Done", 1.0)
@@ -463,7 +465,7 @@ class Orchestrator:
                 f"Comparing {idx}/{total_files}...",
                 0.5 + (idx / max(1, total_files)) * 0.3,
             )
-            comparisons.append(DiffEngine.compare(ref_doc, cmp_doc))
+            comparisons.append(DiffEngine.compare(ref_doc, cmp_doc, self.options))
 
         result = OneVsAllResult(
             reference_path=reference_path,
@@ -476,14 +478,15 @@ class Orchestrator:
         self._progress("Generating HTML report", 0.83)
         timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
         summary_path = output_dir_path / f"one_vs_all_{timestamp_label}.html"
+        _ignore_case = self.options.ignore_case if self.options else False
         result.summary_html_path = SummaryReporter().generate_one_vs_all(
-            result, str(summary_path)
+            result, str(summary_path), ignore_case=_ignore_case
         )
 
         self._progress("Generating Excel report", 0.94)
         summary_excel_path = output_dir_path / f"one_vs_all_{timestamp_label}.xlsx"
         result.summary_excel_path = ExcelReporter().generate_one_vs_all(
-            result, str(summary_excel_path)
+            result, str(summary_excel_path), ignore_case=_ignore_case
         )
 
         self._progress("Done", 1.0)
@@ -541,7 +544,7 @@ class Orchestrator:
         self._normalize_document_text_entities(doc_a, decode_entities=decode_entities)
         self._normalize_document_text_entities(doc_b, decode_entities=decode_entities)
 
-        return DiffEngine.compare(doc_a, doc_b)
+        return DiffEngine.compare(doc_a, doc_b, self.options)
 
     @staticmethod
     def _configure_excel_source_column(

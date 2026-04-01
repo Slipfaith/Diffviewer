@@ -107,6 +107,24 @@ body {
   color: #ffffff;
 }
 
+.filter-added.active {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+}
+
+.filter-deleted.active {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.filter-modified.active {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+}
+
 .report-table {
   width: 100%;
   table-layout: fixed;

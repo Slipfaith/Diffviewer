@@ -6,6 +6,7 @@ from typing import Any
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from core.diff_engine import ComparisonOptions
 from core.orchestrator import Orchestrator
 
 
@@ -20,7 +21,12 @@ class ComparisonWorker(QThread):
         self.payload = payload
 
     def run(self) -> None:
-        orchestrator = Orchestrator(on_progress=self._emit_progress)
+        options = ComparisonOptions(
+            ignore_case=bool(self.payload.get("ignore_case", False)),
+            similarity_threshold=float(self.payload.get("similarity_threshold", 0.6)),
+            fuzzy_match_threshold=float(self.payload.get("fuzzy_match_threshold", 0.8)),
+        )
+        orchestrator = Orchestrator(on_progress=self._emit_progress, options=options)
         try:
             if self.mode == "file":
                 compare_by_columns: bool = bool(self.payload.get("compare_by_columns", False))
@@ -64,6 +70,12 @@ class ComparisonWorker(QThread):
                         )
                         return
 
+                    if compare_by_columns:
+                        self.error.emit(
+                            "Сравнение по колонкам поддерживается только для одной пары файлов.\n"
+                            "Снимите галочку «Сравнить по колонкам» или оставьте одну пару."
+                        )
+                        return
                     pair_result = orchestrator.compare_file_pairs(
                         pairs=[(str(file_a), str(file_b)) for file_a, file_b in pairs],
                         output_dir=str(self.payload["output_dir"]),

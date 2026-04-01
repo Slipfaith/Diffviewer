@@ -49,6 +49,9 @@
     <div class="filter-group">
       <button class="filter-btn active" data-filter="changed">Changed</button>
       <button class="filter-btn" data-filter="all">Show All</button>
+      <button class="filter-btn filter-added" data-filter="added">Added</button>
+      <button class="filter-btn filter-deleted" data-filter="deleted">Deleted</button>
+      <button class="filter-btn filter-modified" data-filter="modified">Modified</button>
     </div>
     {% if multi_mode %}
     <div class="filter-group file-filter-group">
@@ -92,7 +95,7 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr class="row-{{ row.row_state }}{% if not row.is_changed %} hidden{% endif %}" data-changed="{% if row.is_changed %}1{% else %}0{% endif %}" data-file="{{ row.file_key }}">
+      <tr class="row-{{ row.row_state }}{% if not row.is_changed %} hidden{% endif %}" data-changed="{% if row.is_changed %}1{% else %}0{% endif %}" data-type="{{ row.change_type }}" data-file="{{ row.file_key }}">
         <td>{{ row.index }}</td>
         {% if multi_mode %}
         <td class="file-cell">{{ row.file_label }}</td>
@@ -126,7 +129,10 @@
       if (filter === 'all') {
         return true;
       }
-      return row.dataset.changed === '1';
+      if (filter === 'changed') {
+        return row.dataset.changed === '1';
+      }
+      return row.dataset.type === filter;
     }
 
     function isFileVisible(row, fileFilterValue) {

@@ -154,6 +154,7 @@ class HtmlReporter(BaseReporter):
                     "new_target": self._render_new_target(change),
                     "row_state": "changed" if is_changed else "unchanged",
                     "is_changed": is_changed,
+                    "change_type": change.type.value.lower(),
                 }
             )
         return rows

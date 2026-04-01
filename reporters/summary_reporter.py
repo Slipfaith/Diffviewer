@@ -198,7 +198,7 @@ class SummaryReporter:
 
         return str(output_file)
 
-    def generate_versions(self, result: MultiVersionResult, output_path: str) -> str:
+    def generate_versions(self, result: MultiVersionResult, output_path: str, *, ignore_case: bool = False) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != ".html":
             output_file = output_file.with_suffix(".html")
@@ -207,15 +207,16 @@ class SummaryReporter:
         if not result.documents:
             return self._generate_versions_compact(result, output_file)
 
-        return self._generate_versions_matrix(result, output_file)
+        return self._generate_versions_matrix(result, output_file, ignore_case=ignore_case)
 
     def _generate_versions_matrix(
         self,
         result: MultiVersionResult,
         output_file: Path,
+        ignore_case: bool = False,
     ) -> str:
         file_names = [Path(path).name for path in result.file_paths]
-        rows = self._build_version_rows(result)
+        rows = self._build_version_rows(result, ignore_case=ignore_case)
         changes_per_file = self._count_changes_per_file(rows, len(file_names))
         stat_blocks: list[str] = []
         for idx, name in enumerate(file_names):
@@ -254,6 +255,7 @@ class SummaryReporter:
                         current_target=target,
                         state=state,
                         version_index=idx,
+                        ignore_case=ignore_case,
                     )
                     if idx > 0
                     else self._escape_multiline(target)
@@ -364,32 +366,23 @@ class SummaryReporter:
         result.summary_report_path = str(output_file)
         return str(output_file)
 
-    def _build_version_rows(self, result: MultiVersionResult) -> list[dict]:
+    def _build_version_rows(self, result: MultiVersionResult, *, ignore_case: bool = False) -> list[dict]:
         docs = result.documents
         doc_indices = [self._build_doc_index(doc.segments) for doc in docs]
         ordered_ids: list[str] = []
         seen_ids: set[str] = set()
-        seen_source_keys: set[str] = set()
 
         if doc_indices:
             for segment in doc_indices[0]["segments"]:
                 seen_ids.add(segment.id)
                 ordered_ids.append(segment.id)
-                source_key = self._compact_source(segment.source or "")
-                if source_key:
-                    seen_source_keys.add(source_key)
 
         for index in doc_indices[1:]:
             for segment in index["segments"]:
                 if segment.id in seen_ids:
                     continue
-                source_key = self._compact_source(segment.source or "")
-                if source_key and source_key in seen_source_keys:
-                    continue
                 seen_ids.add(segment.id)
                 ordered_ids.append(segment.id)
-                if source_key:
-                    seen_source_keys.add(source_key)
 
         rows: list[dict] = []
         for seg_id in ordered_ids:
@@ -418,7 +411,9 @@ class SummaryReporter:
             for idx in range(1, len(targets)):
                 previous_target = targets[idx - 1]
                 target = targets[idx]
-                if target == previous_target:
+                cmp_prev = previous_target.casefold() if ignore_case else previous_target
+                cmp_cur = target.casefold() if ignore_case else target
+                if cmp_cur == cmp_prev:
                     states.append("same")
                 elif not previous_target and target:
                     states.append("added")
@@ -562,6 +557,7 @@ class SummaryReporter:
         current_target: str,
         state: str,
         version_index: int,
+        ignore_case: bool = False,
     ) -> str:
         if not current_target:
             return ""
@@ -569,10 +565,10 @@ class SummaryReporter:
             return self._escape_multiline(current_target)
         if state == "added":
             return self._wrap_version_insert(current_target, version_index)
-        if TextDiffer.has_only_non_word_or_case_changes(previous_target, current_target):
+        if not ignore_case and TextDiffer.has_only_non_word_or_case_changes(previous_target, current_target):
             return self._render_non_text_diff(previous_target, current_target, version_index)
 
-        diffs = TextDiffer.diff_auto(previous_target, current_target)
+        diffs = TextDiffer.diff_auto(previous_target, current_target, ignore_case=ignore_case)
         parts: list[str] = []
         has_insertions = False
         for chunk in diffs:
@@ -838,14 +834,14 @@ class SummaryReporter:
             .replace("\n", "<br>")
         )
 
-    def generate_one_vs_all(self, result, output_path: str) -> str:
+    def generate_one_vs_all(self, result, output_path: str, *, ignore_case: bool = False) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != ".html":
             output_file = output_file.with_suffix(".html")
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         comp_names = [Path(p).name for p in result.comparison_paths]
-        rows = self._build_one_vs_all_rows(result)
+        rows = self._build_one_vs_all_rows(result, ignore_case=ignore_case)
 
         changes_per_file = [0] * len(comp_names)
         for row in rows:
@@ -897,6 +893,7 @@ class SummaryReporter:
                     current_target=target,
                     state=state,
                     version_index=idx,
+                    ignore_case=ignore_case,
                 )
                 cells.append(
                     f"<td class=\"{' '.join(cell_classes)}\">{rendered}</td>"
@@ -1004,7 +1001,7 @@ class SummaryReporter:
         result.summary_html_path = str(output_file)
         return str(output_file)
 
-    def _build_one_vs_all_rows(self, result) -> list[dict]:
+    def _build_one_vs_all_rows(self, result, *, ignore_case: bool = False) -> list[dict]:
         """Build rows for 1-vs-All report.
         targets[0] = reference (plain), targets[1..] = comparison files.
         States compare each comparison against the reference, not the previous."""
@@ -1015,26 +1012,17 @@ class SummaryReporter:
 
         ordered_ids: list[str] = []
         seen_ids: set[str] = set()
-        seen_source_keys: set[str] = set()
 
         for segment in ref_index["segments"]:
             seen_ids.add(segment.id)
             ordered_ids.append(segment.id)
-            source_key = self._compact_source(segment.source or "")
-            if source_key:
-                seen_source_keys.add(source_key)
 
         for index in comp_indices:
             for segment in index["segments"]:
                 if segment.id in seen_ids:
                     continue
-                source_key = self._compact_source(segment.source or "")
-                if source_key and source_key in seen_source_keys:
-                    continue
                 seen_ids.add(segment.id)
                 ordered_ids.append(segment.id)
-                if source_key:
-                    seen_source_keys.add(source_key)
 
         rows: list[dict] = []
         for seg_id in ordered_ids:
@@ -1070,7 +1058,9 @@ class SummaryReporter:
                         source_val = getattr(comp_seg, "source", None)
                         if source_val:
                             source = source_val
-                    if cmp_target == ref_target:
+                    cmp_ref = ref_target.casefold() if ignore_case else ref_target
+                    cmp_comp = cmp_target.casefold() if ignore_case else cmp_target
+                    if cmp_comp == cmp_ref:
                         states.append("same")
                     elif not ref_target and cmp_target:
                         states.append("added")

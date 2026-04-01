@@ -23,6 +23,13 @@ from core.models import (
 
 
 @dataclass
+class ComparisonOptions:
+    ignore_case: bool = False
+    similarity_threshold: float = SIMILARITY_THRESHOLD
+    fuzzy_match_threshold: float = FUZZY_MATCH_THRESHOLD
+
+
+@dataclass
 class MatchResult:
     pairs: list[tuple[Segment, Segment]]
     unmatched_a: list[Segment]
@@ -99,22 +106,84 @@ class SegmentMatcher:
         unmatched_b = [seg for idx, seg in enumerate(list_b) if idx not in used_b]
         return MatchResult(pairs=pairs, unmatched_a=unmatched_a, unmatched_b=unmatched_b)
 
+    _SHAPE_KEY_RE = re.compile(r"^(.+)_(?:para\d+|tbl_r\d+c\d+)$")
+
+    @classmethod
+    def _extract_shape_key(cls, segment_id: str) -> str | None:
+        m = cls._SHAPE_KEY_RE.match(segment_id)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def match_by_shape_position(
+        segments_a: list[Segment], segments_b: list[Segment]
+    ) -> MatchResult:
+        groups_a: dict[str, list[Segment]] = {}
+        groups_b: dict[str, list[Segment]] = {}
+        no_key_a: list[Segment] = []
+        no_key_b: list[Segment] = []
+
+        for seg in segments_a:
+            key = SegmentMatcher._extract_shape_key(seg.id)
+            if key:
+                groups_a.setdefault(key, []).append(seg)
+            else:
+                no_key_a.append(seg)
+
+        for seg in segments_b:
+            key = SegmentMatcher._extract_shape_key(seg.id)
+            if key:
+                groups_b.setdefault(key, []).append(seg)
+            else:
+                no_key_b.append(seg)
+
+        pairs: list[tuple[Segment, Segment]] = []
+        leftover_a: list[Segment] = list(no_key_a)
+        leftover_b: list[Segment] = list(no_key_b)
+
+        all_keys = set(groups_a) | set(groups_b)
+        for key in all_keys:
+            a_segs = groups_a.get(key, [])
+            b_segs = groups_b.get(key, [])
+            common = min(len(a_segs), len(b_segs))
+            for i in range(common):
+                pairs.append((a_segs[i], b_segs[i]))
+            leftover_a.extend(a_segs[common:])
+            leftover_b.extend(b_segs[common:])
+
+        return MatchResult(pairs=pairs, unmatched_a=leftover_a, unmatched_b=leftover_b)
+
     @classmethod
     def match(
         cls,
         doc_a: ParsedDocument,
         doc_b: ParsedDocument,
         allow_fuzzy: bool = True,
+        fuzzy_threshold: float = FUZZY_MATCH_THRESHOLD,
     ) -> MatchResult:
         initial = cls.match_by_id(doc_a.segments, doc_b.segments)
+        if not initial.unmatched_a and not initial.unmatched_b:
+            return initial
+
+        shape_result = cls.match_by_shape_position(
+            initial.unmatched_a, initial.unmatched_b
+        )
+        all_pairs = initial.pairs + shape_result.pairs
+
         if (
             not allow_fuzzy
-            or (not initial.unmatched_a and not initial.unmatched_b)
+            or (not shape_result.unmatched_a and not shape_result.unmatched_b)
         ):
-            return initial
-        fuzzy = cls.match_by_content(initial.unmatched_a, initial.unmatched_b)
+            return MatchResult(
+                pairs=all_pairs,
+                unmatched_a=shape_result.unmatched_a,
+                unmatched_b=shape_result.unmatched_b,
+            )
+
+        fuzzy = cls.match_by_content(
+            shape_result.unmatched_a, shape_result.unmatched_b, threshold=fuzzy_threshold
+        )
         return MatchResult(
-            pairs=initial.pairs + fuzzy.pairs,
+            pairs=all_pairs + fuzzy.pairs,
             unmatched_a=fuzzy.unmatched_a,
             unmatched_b=fuzzy.unmatched_b,
         )
@@ -142,34 +211,45 @@ class TextDiffer:
             return
         chunks.append(DiffChunk(type=chunk_type, text=text))
 
-    @staticmethod
-    def diff_words(a: str, b: str) -> list[DiffChunk]:
-        a_tokens = TextDiffer._tokenize(a)
-        b_tokens = TextDiffer._tokenize(b)
-        matcher = SequenceMatcher(None, a_tokens, b_tokens)
+    @classmethod
+    def diff_words(cls, a: str, b: str, ignore_case: bool = False) -> list[DiffChunk]:
+        a_tokens = cls._tokenize(a)
+        b_tokens = cls._tokenize(b)
+        if ignore_case:
+            matcher = SequenceMatcher(
+                None,
+                [t.casefold() for t in a_tokens],
+                [t.casefold() for t in b_tokens],
+            )
+        else:
+            matcher = SequenceMatcher(None, a_tokens, b_tokens)
         chunks: list[DiffChunk] = []
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal":
-                TextDiffer._append_chunk(
+                cls._append_chunk(
                     chunks, ChunkType.EQUAL, "".join(a_tokens[i1:i2])
                 )
             elif tag == "delete":
-                TextDiffer._append_chunk(
+                cls._append_chunk(
                     chunks, ChunkType.DELETE, "".join(a_tokens[i1:i2])
                 )
             elif tag == "insert":
-                TextDiffer._append_chunk(
+                cls._append_chunk(
                     chunks, ChunkType.INSERT, "".join(b_tokens[j1:j2])
                 )
             elif tag == "replace":
-                TextDiffer._append_replace_chunks(
-                    chunks, a_tokens[i1:i2], b_tokens[j1:j2]
+                cls._append_replace_chunks(
+                    chunks, a_tokens[i1:i2], b_tokens[j1:j2], ignore_case=ignore_case
                 )
         return chunks
 
     @classmethod
     def _append_replace_chunks(
-        cls, chunks: list[DiffChunk], tokens_a: list[str], tokens_b: list[str]
+        cls,
+        chunks: list[DiffChunk],
+        tokens_a: list[str],
+        tokens_b: list[str],
+        ignore_case: bool = False,
     ) -> None:
         common = min(len(tokens_a), len(tokens_b))
         for idx in range(common):
@@ -180,8 +260,11 @@ class TextDiffer:
                 continue
             if cls._is_word(token_a) and cls._is_word(token_b):
                 if token_a.lower() == token_b.lower():
-                    for chunk in cls.diff_chars(token_a, token_b):
-                        cls._append_chunk(chunks, chunk.type, chunk.text)
+                    if ignore_case:
+                        cls._append_chunk(chunks, ChunkType.EQUAL, token_a)
+                    else:
+                        for chunk in cls.diff_chars(token_a, token_b):
+                            cls._append_chunk(chunks, chunk.type, chunk.text)
                 else:
                     cls._append_chunk(chunks, ChunkType.DELETE, token_a)
                     cls._append_chunk(chunks, ChunkType.INSERT, token_b)
@@ -212,13 +295,13 @@ class TextDiffer:
         return chunks
 
     @classmethod
-    def diff_auto(cls, a: str, b: str) -> list[DiffChunk]:
+    def diff_auto(cls, a: str, b: str, ignore_case: bool = False) -> list[DiffChunk]:
         if "\n" in a or "\n" in b:
-            return cls._diff_lines_then_words(a, b)
-        return cls.diff_words(a, b)
+            return cls._diff_lines_then_words(a, b, ignore_case=ignore_case)
+        return cls.diff_words(a, b, ignore_case=ignore_case)
 
     @classmethod
-    def _diff_lines_then_words(cls, a: str, b: str) -> list[DiffChunk]:
+    def _diff_lines_then_words(cls, a: str, b: str, ignore_case: bool = False) -> list[DiffChunk]:
         a_norm = a.replace("\r\n", "\n").replace("\r", "\n")
         b_norm = b.replace("\r\n", "\n").replace("\r", "\n")
         a_lines = a_norm.splitlines(keepends=True)
@@ -229,7 +312,14 @@ class TextDiffer:
         if b_lines and not b_lines[-1].endswith("\n"):
             b_lines[-1] += "\n"
 
-        matcher = SequenceMatcher(None, a_lines, b_lines)
+        if ignore_case:
+            matcher = SequenceMatcher(
+                None,
+                [l.casefold() for l in a_lines],
+                [l.casefold() for l in b_lines],
+            )
+        else:
+            matcher = SequenceMatcher(None, a_lines, b_lines)
         chunks: list[DiffChunk] = []
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal":
@@ -239,7 +329,7 @@ class TextDiffer:
             elif tag == "insert":
                 cls._append_chunk(chunks, ChunkType.INSERT, "".join(b_lines[j1:j2]))
             elif tag == "replace":
-                cls._diff_replace_lines(chunks, a_lines[i1:i2], b_lines[j1:j2])
+                cls._diff_replace_lines(chunks, a_lines[i1:i2], b_lines[j1:j2], ignore_case=ignore_case)
         return chunks
 
     @classmethod
@@ -248,10 +338,11 @@ class TextDiffer:
         chunks: list[DiffChunk],
         old_lines: list[str],
         new_lines: list[str],
+        ignore_case: bool = False,
     ) -> None:
         common = min(len(old_lines), len(new_lines))
         for i in range(common):
-            line_chunks = cls.diff_words(old_lines[i], new_lines[i])
+            line_chunks = cls.diff_words(old_lines[i], new_lines[i], ignore_case=ignore_case)
             for chunk in line_chunks:
                 cls._append_chunk(chunks, chunk.type, chunk.text)
         for line in old_lines[common:]:
@@ -329,17 +420,27 @@ class DiffEngine:
         )
 
     @staticmethod
-    def compare(doc_a: ParsedDocument, doc_b: ParsedDocument) -> ComparisonResult:
+    def compare(
+        doc_a: ParsedDocument,
+        doc_b: ParsedDocument,
+        options: ComparisonOptions | None = None,
+    ) -> ComparisonResult:
+        if options is None:
+            options = ComparisonOptions()
         strict_id_mode = DiffEngine._is_sdlxliff(doc_a, doc_b)
         xliff_family_mode = DiffEngine._is_xliff_family(doc_a, doc_b)
         match_result = SegmentMatcher.match(
-            doc_a, doc_b, allow_fuzzy=not strict_id_mode
+            doc_a, doc_b, allow_fuzzy=not strict_id_mode,
+            fuzzy_threshold=options.fuzzy_match_threshold,
         )
-        match_result = DiffEngine._pair_unmatched_by_source(match_result)
+        if not strict_id_mode:
+            match_result = DiffEngine._pair_unmatched_by_source(match_result)
         changes: list[ChangeRecord] = []
 
         for seg_a, seg_b in match_result.pairs:
-            if seg_a.target == seg_b.target:
+            cmp_a = seg_a.target.casefold() if options.ignore_case else seg_a.target
+            cmp_b = seg_b.target.casefold() if options.ignore_case else seg_b.target
+            if cmp_a == cmp_b:
                 changes.append(
                     ChangeRecord(
                         type=ChangeType.UNCHANGED,
@@ -353,13 +454,13 @@ class DiffEngine:
                 continue
 
             similarity = SequenceMatcher(None, seg_a.target, seg_b.target).ratio()
-            text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target)
+            text_diff = TextDiffer.diff_auto(seg_a.target, seg_b.target, ignore_case=options.ignore_case)
             ids_match = seg_a.id == seg_b.id
             keep_as_modified = (
                 strict_id_mode
                 or ids_match
                 or DiffEngine._sources_match(seg_a.source, seg_b.source)
-                or similarity >= SIMILARITY_THRESHOLD
+                or similarity >= options.similarity_threshold
                 or TextDiffer.has_only_non_word_or_case_changes(
                     seg_a.target, seg_b.target
                 )
@@ -431,10 +532,14 @@ class DiffEngine:
         )
 
     @classmethod
-    def compare_multi(cls, docs: list[ParsedDocument]) -> list[ComparisonResult]:
+    def compare_multi(
+        cls,
+        docs: list[ParsedDocument],
+        options: ComparisonOptions | None = None,
+    ) -> list[ComparisonResult]:
         if len(docs) < 2:
             return []
         results: list[ComparisonResult] = []
         for idx in range(len(docs) - 1):
-            results.append(cls.compare(docs[idx], docs[idx + 1]))
+            results.append(cls.compare(docs[idx], docs[idx + 1], options))
         return results

@@ -20,6 +20,7 @@ PARSER_HIDDEN_IMPORTS = [
     "parsers.xls_parser",
     "parsers.pptx_parser",
     "parsers.docx_parser",
+    "parsers.pdf_parser",
 ]
 
 REPORTER_HIDDEN_IMPORTS = [

@@ -14,9 +14,12 @@
 | Цепочечное сравнение нескольких версий (`v1 → v2 → v3`) | Multi-version chained comparison (`v1 → v2 → v3`) |
 | Пакетная обработка папок | Batch folder processing |
 | Режим Excel: сравнение колонка-к-колонке с разметкой внутри ячеек | Excel column-by-column mode with inline cell markup |
-| Интерактивные HTML-отчёты | Interactive HTML reports |
+| Интерактивные HTML-отчёты с фильтрами (All / Changed / Added / Deleted / Modified) | Interactive HTML reports with granular filters |
 | Excel-отчёты с встроенным diff | Excel reports with inline rich diff |
 | Экспорт DOCX с Track Changes (при наличии Microsoft Word) | DOCX Track Changes export (requires Microsoft Word) |
+| Настраиваемые пороги схожести и нечёткого совпадения | Configurable similarity and fuzzy-match thresholds |
+| Сохранение настроек между запусками | Settings persistence between sessions |
+| Поддержка PDF (текстовое извлечение) | PDF support (text extraction) |
 | GUI и CLI режимы | GUI and CLI modes |
 
 ---
@@ -28,6 +31,7 @@
 | XLIFF | `.xliff`, `.xlf`, `.sdlxliff`, `.mqxliff` |
 | Текст / Text | `.txt`, `.srt` |
 | Office | `.xlsx`, `.xls`, `.pptx`, `.docx` |
+| PDF | `.pdf` *(требует `pip install pymupdf` / requires `pip install pymupdf`)* |
 
 ---
 

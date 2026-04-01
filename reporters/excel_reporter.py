@@ -257,6 +257,8 @@ class ExcelReporter(BaseReporter):
         self,
         result: MultiVersionResult,
         output_path: str,
+        *,
+        ignore_case: bool = False,
     ) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != self.output_extension:
@@ -264,7 +266,7 @@ class ExcelReporter(BaseReporter):
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         file_names = [Path(p).name for p in result.file_paths]
-        rows = self._build_version_rows(result)
+        rows = self._build_version_rows(result, ignore_case=ignore_case)
 
         workbook = xlsxwriter.Workbook(
             str(output_file),
@@ -320,17 +322,19 @@ class ExcelReporter(BaseReporter):
 
             show_source = any(bool(row["source"].strip()) for row in rows)
 
-            headers = ["Segment ID"]
+            headers = ["Статус", "Segment ID"]
             if show_source:
                 headers.append("Source")
             for name in file_names:
                 headers.append(f"Target: {name}")
             ws.write_row(0, 0, headers, header_fmt)
 
-            col_id = 0
-            col_source: int | None = 1 if show_source else None
-            col_target_start = 2 if show_source else 1
+            col_status = 0
+            col_id = 1
+            col_source: int | None = 2 if show_source else None
+            col_target_start = 3 if show_source else 2
 
+            ws.set_column(col_status, col_status, 12)
             ws.set_column(col_id, col_id, 10)
             if col_source is not None:
                 ws.set_column(col_source, col_source, 30)
@@ -343,6 +347,7 @@ class ExcelReporter(BaseReporter):
                 row_changed = self._version_row_has_changes(row_data)
                 row_bg_fmt = changed_fmt if row_changed else unchanged_fmt
 
+                self._write_text(ws, row_num, col_status, "Изменено" if row_changed else "", row_bg_fmt)
                 self._write_text(ws, row_num, col_id, row_data["id"], row_bg_fmt)
                 if col_source is not None:
                     self._write_text(ws, row_num, col_source, row_data["source"], row_bg_fmt)
@@ -427,10 +432,10 @@ class ExcelReporter(BaseReporter):
             self._write_text(worksheet, row, col, current_target, default_format)
 
     @staticmethod
-    def _build_version_rows(result: MultiVersionResult) -> list[dict]:
+    def _build_version_rows(result: MultiVersionResult, *, ignore_case: bool = False) -> list[dict]:
         from reporters.summary_reporter import SummaryReporter
         reporter = SummaryReporter()
-        return reporter._build_version_rows(result)
+        return reporter._build_version_rows(result, ignore_case=ignore_case)
 
     @staticmethod
     def _version_row_has_changes(row: dict) -> bool:
@@ -446,14 +451,14 @@ class ExcelReporter(BaseReporter):
                     counts[idx] += 1
         return counts
 
-    def generate_one_vs_all(self, result, output_path: str) -> str:
+    def generate_one_vs_all(self, result, output_path: str, *, ignore_case: bool = False) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != self.output_extension:
             output_file = output_file.with_suffix(self.output_extension)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         from reporters.summary_reporter import SummaryReporter
-        rows = SummaryReporter()._build_one_vs_all_rows(result)
+        rows = SummaryReporter()._build_one_vs_all_rows(result, ignore_case=ignore_case)
         comp_names = [Path(p).name for p in result.comparison_paths]
 
         workbook = xlsxwriter.Workbook(

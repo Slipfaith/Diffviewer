@@ -7,7 +7,7 @@ import subprocess
 import sys
 import webbrowser
 
-from PyQt6.QtCore import QEvent, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QEvent, QSettings, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -188,6 +189,26 @@ class MainWindow(QMainWindow):
 
         self._set_mode(self.MODE_FILE)
         self._update_action_state()
+        self._load_settings()
+
+    def _settings(self) -> QSettings:
+        return QSettings("DiffViewer", "DiffView")
+
+    def _load_settings(self) -> None:
+        s = self._settings()
+        self.output_line.setText(s.value("output_dir", "./output/", type=str))
+        self.ignore_case_checkbox.setChecked(s.value("ignore_case", False, type=bool))
+        self.similarity_spinbox.setValue(s.value("similarity_threshold", 0.6, type=float))
+        self.fuzzy_spinbox.setValue(s.value("fuzzy_match_threshold", 0.8, type=float))
+
+    def closeEvent(self, event) -> None:
+        s = self._settings()
+        s.setValue("output_dir", self.output_line.text())
+        s.setValue("ignore_case", self.ignore_case_checkbox.isChecked())
+        s.setValue("similarity_threshold", self.similarity_spinbox.value())
+        s.setValue("fuzzy_match_threshold", self.fuzzy_spinbox.value())
+        super().closeEvent(event)
+
 
     def _build_top_menu(self) -> None:
         menu_bar = self.menuBar()
@@ -528,6 +549,41 @@ class MainWindow(QMainWindow):
         links.addStretch(1)
         layout.addLayout(links)
 
+        self.ignore_case_checkbox = QCheckBox("Не учитывать регистр")
+        self.ignore_case_checkbox.setToolTip(
+            "Считать одинаковыми строки, различающиеся только регистром символов"
+        )
+
+        self.similarity_spinbox = QDoubleSpinBox()
+        self.similarity_spinbox.setRange(0.0, 1.0)
+        self.similarity_spinbox.setSingleStep(0.05)
+        self.similarity_spinbox.setValue(0.6)
+        self.similarity_spinbox.setDecimals(2)
+        self.similarity_spinbox.setToolTip(
+            "Порог схожести: пары сегментов с похожестью ниже порога считаются разными (ADDED/DELETED)"
+        )
+
+        self.fuzzy_spinbox = QDoubleSpinBox()
+        self.fuzzy_spinbox.setRange(0.0, 1.0)
+        self.fuzzy_spinbox.setSingleStep(0.05)
+        self.fuzzy_spinbox.setValue(0.8)
+        self.fuzzy_spinbox.setDecimals(2)
+        self.fuzzy_spinbox.setToolTip(
+            "Порог нечёткого совпадения: минимальная похожесть для нечёткого сопоставления сегментов"
+        )
+
+        options_row = QHBoxLayout()
+        options_row.addStretch(1)
+        options_row.addWidget(self.ignore_case_checkbox)
+        options_row.addSpacing(16)
+        options_row.addWidget(QLabel("Порог схожести:"))
+        options_row.addWidget(self.similarity_spinbox)
+        options_row.addSpacing(8)
+        options_row.addWidget(QLabel("Порог нечёткого совпадения:"))
+        options_row.addWidget(self.fuzzy_spinbox)
+        options_row.addStretch(1)
+        layout.addLayout(options_row)
+
         self.compare_btn = QPushButton("Compare")
         self.compare_btn.setObjectName("compareButton")
         self.compare_btn.clicked.connect(self._start_comparison)
@@ -647,13 +703,18 @@ class MainWindow(QMainWindow):
 
     def _update_excel_source_controls_visibility(self) -> None:
         is_file_mode = self.current_mode == self.MODE_FILE
-        should_show = is_file_mode and any(
-            Path(path).suffix.lower() in {".xlsx", ".xls"}
-            for path in self.file_a_zone.file_paths() + self.file_b_zone.file_paths()
+        all_paths = self.file_a_zone.file_paths() + self.file_b_zone.file_paths()
+        has_excel = is_file_mode and any(
+            Path(path).suffix.lower() in {".xlsx", ".xls"} for path in all_paths
         )
-        self.excel_source_options_widget.setVisible(should_show)
-        self.excel_col_compare_widget.setVisible(should_show)
-        if not should_show:
+        has_xlsx_only = is_file_mode and any(
+            Path(path).suffix.lower() == ".xlsx" for path in all_paths
+        ) and not any(
+            Path(path).suffix.lower() == ".xls" for path in all_paths
+        )
+        self.excel_source_options_widget.setVisible(has_excel)
+        self.excel_col_compare_widget.setVisible(has_xlsx_only)
+        if not has_xlsx_only:
             self.excel_col_compare_checkbox.setChecked(False)
 
     def _on_col_compare_toggled(self, state: int) -> None:
@@ -841,6 +902,9 @@ class MainWindow(QMainWindow):
                 "excel_source_col_a": excel_source_col_a,
                 "excel_source_col_b": excel_source_col_b,
                 "compare_by_columns": compare_by_columns,
+                "ignore_case": self.ignore_case_checkbox.isChecked(),
+                "similarity_threshold": self.similarity_spinbox.value(),
+                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
             }
         elif self.current_mode == self.MODE_VERSIONS:
             output_dir = self.output_line.text().strip()
@@ -849,7 +913,13 @@ class MainWindow(QMainWindow):
             files = [self.version_list.item(i).text() for i in range(self.version_list.count())]
             if len(files) < 2:
                 return
-            payload = {"files": files, "output_dir": output_dir}
+            payload = {
+                "files": files,
+                "output_dir": output_dir,
+                "ignore_case": self.ignore_case_checkbox.isChecked(),
+                "similarity_threshold": self.similarity_spinbox.value(),
+                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
+            }
         elif self.current_mode == self.MODE_ONE_VS_ALL:
             output_dir = self.output_line.text().strip()
             if not output_dir:
@@ -862,6 +932,9 @@ class MainWindow(QMainWindow):
                 "reference": reference_paths[0],
                 "comparisons": comparison_paths,
                 "output_dir": output_dir,
+                "ignore_case": self.ignore_case_checkbox.isChecked(),
+                "similarity_threshold": self.similarity_spinbox.value(),
+                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
             }
         else:
             return
