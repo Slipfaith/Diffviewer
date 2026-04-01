@@ -227,7 +227,7 @@ class TextDiffer:
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal":
                 cls._append_chunk(
-                    chunks, ChunkType.EQUAL, "".join(a_tokens[i1:i2])
+                    chunks, ChunkType.EQUAL, "".join(b_tokens[j1:j2] if ignore_case else a_tokens[i1:i2])
                 )
             elif tag == "delete":
                 cls._append_chunk(
@@ -261,7 +261,7 @@ class TextDiffer:
             if cls._is_word(token_a) and cls._is_word(token_b):
                 if token_a.lower() == token_b.lower():
                     if ignore_case:
-                        cls._append_chunk(chunks, ChunkType.EQUAL, token_a)
+                        cls._append_chunk(chunks, ChunkType.EQUAL, token_b)
                     else:
                         for chunk in cls.diff_chars(token_a, token_b):
                             cls._append_chunk(chunks, chunk.type, chunk.text)
