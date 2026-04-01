@@ -17,7 +17,6 @@
 | Интерактивные HTML-отчёты с фильтрами (All / Changed / Added / Deleted / Modified) | Interactive HTML reports with granular filters |
 | Excel-отчёты с встроенным diff | Excel reports with inline rich diff |
 | Экспорт DOCX с Track Changes (при наличии Microsoft Word) | DOCX Track Changes export (requires Microsoft Word) |
-| Настраиваемые пороги схожести и нечёткого совпадения | Configurable similarity and fuzzy-match thresholds |
 | Сохранение настроек между запусками | Settings persistence between sessions |
 | Поддержка PDF (текстовое извлечение) | PDF support (text extraction) |
 | GUI и CLI режимы | GUI and CLI modes |

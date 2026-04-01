@@ -23,8 +23,6 @@ class ComparisonWorker(QThread):
     def run(self) -> None:
         options = ComparisonOptions(
             ignore_case=bool(self.payload.get("ignore_case", False)),
-            similarity_threshold=float(self.payload.get("similarity_threshold", 0.6)),
-            fuzzy_match_threshold=float(self.payload.get("fuzzy_match_threshold", 0.8)),
         )
         orchestrator = Orchestrator(on_progress=self._emit_progress, options=options)
         try:

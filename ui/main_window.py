@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -170,7 +169,7 @@ class MainWindow(QMainWindow):
         self._ova_ref_updating = False
 
         self.setWindowTitle("Diff View")
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(900, 620)
         self.setStyleSheet(self._build_styles())
 
         central = QWidget(self)
@@ -198,15 +197,11 @@ class MainWindow(QMainWindow):
         s = self._settings()
         self.output_line.setText(s.value("output_dir", "./output/", type=str))
         self.ignore_case_checkbox.setChecked(s.value("ignore_case", False, type=bool))
-        self.similarity_spinbox.setValue(s.value("similarity_threshold", 0.6, type=float))
-        self.fuzzy_spinbox.setValue(s.value("fuzzy_match_threshold", 0.8, type=float))
 
     def closeEvent(self, event) -> None:
         s = self._settings()
         s.setValue("output_dir", self.output_line.text())
         s.setValue("ignore_case", self.ignore_case_checkbox.isChecked())
-        s.setValue("similarity_threshold", self.similarity_spinbox.value())
-        s.setValue("fuzzy_match_threshold", self.fuzzy_spinbox.value())
         super().closeEvent(event)
 
 
@@ -220,7 +215,7 @@ class MainWindow(QMainWindow):
     def _show_help_dialog(self) -> None:
         dialog = QDialog(self)
         dialog.setWindowTitle("Справка")
-        dialog.setMinimumSize(520, 420)
+        dialog.setMinimumSize(600, 540)
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -246,7 +241,7 @@ class MainWindow(QMainWindow):
             "<ul>"
             "<li>Добавьте 2+ файла; порядок задаёт версионность.</li>"
             "<li>Перетаскивайте файлы в списке для изменения порядка.</li>"
-            "<li>Результат: сводный HTML-отчёт по всем парам (1->2, 2->3, ...).</li>"
+            "<li>Результат: сводный HTML-отчёт по всем парам (1→2, 2→3, ...).</li>"
             "</ul>"
             "<hr>"
             '<h3 style="margin-bottom:4px;">1 vs All</h3>'
@@ -259,8 +254,15 @@ class MainWindow(QMainWindow):
             "<li>Поддерживаемые форматы: XLIFF, SDLXLIFF, MemoQ XLIFF.</li>"
             "</ul>"
             "<hr>"
+            '<h3 style="margin-bottom:4px;">Настройки сравнения</h3>'
+            "<p><b>Не учитывать регистр</b> — при включённой опции сравнение ведётся без учёта заглавных букв. "
+            "Сегменты, различающиеся только регистром, считаются одинаковыми и не попадают в отчёт как изменённые.</p>"
+            '<p style="color:#475569; font-size:12px; margin-left:12px;">'
+            "<i>Пример: «Hook diameter» и «Hook Diameter» → UNCHANGED (без изменений).<br>"
+            "«Hook diameter» и «Bolt diameter» → MODIFIED (изменение содержимого).</i></p>"
+            "<hr>"
             '<p style="color:#64748b; font-size:11px;">Поддерживаемые форматы: '
-            "XLIFF, SDLXLIFF, MemoQ XLIFF, Excel, Word, PowerPoint, TXT, SRT.</p>"
+            "XLIFF, SDLXLIFF, MemoQ XLIFF, Excel, Word, PowerPoint, TXT, SRT, PDF.</p>"
         )
         layout.addWidget(browser, 1)
 
@@ -554,33 +556,9 @@ class MainWindow(QMainWindow):
             "Считать одинаковыми строки, различающиеся только регистром символов"
         )
 
-        self.similarity_spinbox = QDoubleSpinBox()
-        self.similarity_spinbox.setRange(0.0, 1.0)
-        self.similarity_spinbox.setSingleStep(0.05)
-        self.similarity_spinbox.setValue(0.6)
-        self.similarity_spinbox.setDecimals(2)
-        self.similarity_spinbox.setToolTip(
-            "Порог схожести: пары сегментов с похожестью ниже порога считаются разными (ADDED/DELETED)"
-        )
-
-        self.fuzzy_spinbox = QDoubleSpinBox()
-        self.fuzzy_spinbox.setRange(0.0, 1.0)
-        self.fuzzy_spinbox.setSingleStep(0.05)
-        self.fuzzy_spinbox.setValue(0.8)
-        self.fuzzy_spinbox.setDecimals(2)
-        self.fuzzy_spinbox.setToolTip(
-            "Порог нечёткого совпадения: минимальная похожесть для нечёткого сопоставления сегментов"
-        )
-
         options_row = QHBoxLayout()
         options_row.addStretch(1)
         options_row.addWidget(self.ignore_case_checkbox)
-        options_row.addSpacing(16)
-        options_row.addWidget(QLabel("Порог схожести:"))
-        options_row.addWidget(self.similarity_spinbox)
-        options_row.addSpacing(8)
-        options_row.addWidget(QLabel("Порог нечёткого совпадения:"))
-        options_row.addWidget(self.fuzzy_spinbox)
         options_row.addStretch(1)
         layout.addLayout(options_row)
 
@@ -903,8 +881,6 @@ class MainWindow(QMainWindow):
                 "excel_source_col_b": excel_source_col_b,
                 "compare_by_columns": compare_by_columns,
                 "ignore_case": self.ignore_case_checkbox.isChecked(),
-                "similarity_threshold": self.similarity_spinbox.value(),
-                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
             }
         elif self.current_mode == self.MODE_VERSIONS:
             output_dir = self.output_line.text().strip()
@@ -917,8 +893,6 @@ class MainWindow(QMainWindow):
                 "files": files,
                 "output_dir": output_dir,
                 "ignore_case": self.ignore_case_checkbox.isChecked(),
-                "similarity_threshold": self.similarity_spinbox.value(),
-                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
             }
         elif self.current_mode == self.MODE_ONE_VS_ALL:
             output_dir = self.output_line.text().strip()
@@ -933,8 +907,6 @@ class MainWindow(QMainWindow):
                 "comparisons": comparison_paths,
                 "output_dir": output_dir,
                 "ignore_case": self.ignore_case_checkbox.isChecked(),
-                "similarity_threshold": self.similarity_spinbox.value(),
-                "fuzzy_match_threshold": self.fuzzy_spinbox.value(),
             }
         else:
             return
