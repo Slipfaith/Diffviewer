@@ -40,6 +40,7 @@ a = Analysis(
         "parsers.xls_parser",
         "parsers.pptx_parser",
         "parsers.docx_parser",
+        "parsers.pdf_parser",
         "reporters.html_reporter",
         "reporters.excel_reporter",
         "reporters.docx_reporter",
