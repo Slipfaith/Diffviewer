@@ -113,11 +113,10 @@ def test_html_reporter_generates_report(tmp_path: Path) -> None:
     assert 'class="col-old-target"' in output_content
     assert 'class="col-new-target"' in output_content
     assert ">Type<" not in output_content
-    assert "data-type=" not in output_content
-    assert 'data-filter="added"' not in output_content
-    assert 'data-filter="deleted"' not in output_content
-    assert 'data-filter="modified"' not in output_content
-    assert 'data-filter="unchanged"' not in output_content
+    assert 'data-type="modified"' in output_content
+    assert 'data-filter="added"' in output_content
+    assert 'data-filter="deleted"' in output_content
+    assert 'data-filter="modified"' in output_content
 
 
 def test_html_reporter_empty_result(tmp_path: Path) -> None:

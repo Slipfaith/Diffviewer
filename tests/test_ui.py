@@ -30,8 +30,8 @@ def app() -> QApplication:
 def test_main_window_creation(app: QApplication) -> None:
     window = MainWindow()
     assert window.windowTitle() == "Diff View"
-    assert window.minimumWidth() == 800
-    assert window.minimumHeight() == 500
+    assert window.minimumWidth() == 900
+    assert window.minimumHeight() == 620
     window.close()
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-APP_VERSION = "2.4"
+APP_VERSION = "2.5"
 
 
 def main() -> None:
