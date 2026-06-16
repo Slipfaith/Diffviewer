@@ -192,6 +192,7 @@ def test_parser_discover_fallback_without_filesystem_scan(
 
     ParserRegistry.discover()
     supported = ParserRegistry.supported_extensions()
+    assert ".po" in supported
     assert ".txt" in supported
     assert ".xliff" in supported
     assert ".sdlxliff" in supported

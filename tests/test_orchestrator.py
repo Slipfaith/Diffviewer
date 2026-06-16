@@ -61,6 +61,21 @@ def test_orchestrator_txt_preserves_literal_entities_in_report(tmp_path: Path) -
     assert "Don't" not in html_content
 
 
+def test_orchestrator_po_preserves_literal_entities_in_report(tmp_path: Path) -> None:
+    file_a = tmp_path / "a.po"
+    file_b = tmp_path / "b.po"
+    file_a.write_text('msgid "Source"\nmsgstr "Don&#39;t old"\n', encoding="utf-8")
+    file_b.write_text('msgid "Source"\nmsgstr "Don&#39;t new"\n', encoding="utf-8")
+
+    orchestrator = Orchestrator()
+    outputs = orchestrator.compare_files(str(file_a), str(file_b), str(tmp_path))
+    html_file = next(Path(output) for output in outputs if Path(output).suffix == ".html")
+    html_content = html_file.read_text(encoding="utf-8")
+
+    assert "Don&amp;#39;t" in html_content
+    assert "Don't" not in html_content
+
+
 def test_orchestrator_non_text_decodes_entities_in_report(tmp_path: Path) -> None:
     file_a = tmp_path / "a.xliff"
     file_b = tmp_path / "b.xliff"

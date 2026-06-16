@@ -50,6 +50,7 @@ class Orchestrator:
         *,
         excel_source_column_a: str | int | None = None,
         excel_source_column_b: str | int | None = None,
+        docx_session: DocxTrackChangesReporter | None = None,
     ) -> list[str]:
         path_a = Path(file_a)
         path_b = Path(file_b)
@@ -108,18 +109,31 @@ class Orchestrator:
 
         outputs: list[str] = []
         if ext_a == ".docx":
-            docx_reporter = DocxTrackChangesReporter()
-            if docx_reporter.is_available():
-                output_path = output_dir_path / f"{base_name}{docx_reporter.output_extension}"
-                outputs.append(docx_reporter.generate(result, str(output_path)))
-                outputs.append(HtmlReporter().generate(result, str(html_path)))
-                outputs.append(ExcelReporter().generate(result, str(excel_path)))
-            else:
-                logger.warning(
-                    "Microsoft Word not found, generating HTML+Excel reports only"
-                )
-                outputs.append(HtmlReporter().generate(result, str(html_path)))
-                outputs.append(ExcelReporter().generate(result, str(excel_path)))
+            # Reuse a batch session if one was passed in; otherwise open a
+            # short-lived session for this single file so Word starts once
+            # (open_session also serves as the availability check) instead of
+            # twice (is_available() + generate()).
+            docx_reporter = docx_session
+            owns_session = False
+            if docx_reporter is None:
+                docx_reporter = DocxTrackChangesReporter()
+                owns_session = docx_reporter.open_session()
+            reporter_available = docx_session is not None or owns_session
+            try:
+                if reporter_available:
+                    output_path = output_dir_path / f"{base_name}{docx_reporter.output_extension}"
+                    outputs.append(docx_reporter.generate(result, str(output_path)))
+                    outputs.append(HtmlReporter().generate(result, str(html_path)))
+                    outputs.append(ExcelReporter().generate(result, str(excel_path)))
+                else:
+                    logger.warning(
+                        "Microsoft Word not found, generating HTML+Excel reports only"
+                    )
+                    outputs.append(HtmlReporter().generate(result, str(html_path)))
+                    outputs.append(ExcelReporter().generate(result, str(excel_path)))
+            finally:
+                if owns_session:
+                    docx_reporter.close_session()
         else:
             outputs.append(HtmlReporter().generate(result, str(html_path)))
             outputs.append(ExcelReporter().generate(result, str(excel_path)))
@@ -162,12 +176,13 @@ class Orchestrator:
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
 
-        # Check once whether docx track-changes generation is possible
+        # Start a single reusable Word instance for the whole batch instead of
+        # cycling it per pair. open_session() doubles as the availability check.
         has_docx_pairs = any(Path(fa).suffix.lower() == ".docx" for fa, fb in pairs)
         docx_reporter: DocxTrackChangesReporter | None = None
         if has_docx_pairs:
             _reporter = DocxTrackChangesReporter()
-            if _reporter.is_available():
+            if _reporter.open_session():
                 docx_reporter = _reporter
             else:
                 logger.warning(
@@ -178,56 +193,60 @@ class Orchestrator:
         file_results: list[dict[str, object]] = []
         total = len(pairs) if pairs else 1
 
-        for index, (file_a, file_b) in enumerate(pairs, start=1):
-            self._progress(
-                f"Comparing {index}/{len(pairs)}: {Path(file_a).name} vs {Path(file_b).name}",
-                (index - 1) / total,
-            )
-            try:
-                result = self._compare_pair_without_reports(
-                    file_a,
-                    file_b,
-                    excel_source_column_a=excel_source_column_a,
-                    excel_source_column_b=excel_source_column_b,
+        try:
+            for index, (file_a, file_b) in enumerate(pairs, start=1):
+                self._progress(
+                    f"Comparing {index}/{len(pairs)}: {Path(file_a).name} vs {Path(file_b).name}",
+                    (index - 1) / total,
                 )
-                self.last_result = result
+                try:
+                    result = self._compare_pair_without_reports(
+                        file_a,
+                        file_b,
+                        excel_source_column_a=excel_source_column_a,
+                        excel_source_column_b=excel_source_column_b,
+                    )
+                    self.last_result = result
 
-                # Generate per-pair docx track-changes report
-                pair_report_paths: list[str] = []
-                if Path(file_a).suffix.lower() == ".docx" and docx_reporter is not None:
-                    pair_subdir = output_dir_path / self._safe_stem(Path(file_a).name)
-                    pair_subdir.mkdir(parents=True, exist_ok=True)
-                    timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
-                    docx_out = pair_subdir / f"changereport_{timestamp_label}.docx"
-                    try:
-                        generated = docx_reporter.generate(result, str(docx_out))
-                        pair_report_paths.append(generated)
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to generate docx track-changes for %s: %s", file_a, exc
-                        )
+                    # Generate per-pair docx track-changes report
+                    pair_report_paths: list[str] = []
+                    if Path(file_a).suffix.lower() == ".docx" and docx_reporter is not None:
+                        pair_subdir = output_dir_path / self._safe_stem(Path(file_a).name)
+                        pair_subdir.mkdir(parents=True, exist_ok=True)
+                        timestamp_label = datetime.now().strftime("%d-%m-%y--%H-%M-%S")
+                        docx_out = pair_subdir / f"changereport_{timestamp_label}.docx"
+                        try:
+                            generated = docx_reporter.generate(result, str(docx_out))
+                            pair_report_paths.append(generated)
+                        except Exception as exc:
+                            logger.warning(
+                                "Failed to generate docx track-changes for %s: %s", file_a, exc
+                            )
 
-                pair_label = f"{Path(file_a).name} vs {Path(file_b).name}"
-                successful_results.append((pair_label, result))
-                file_results.append(
-                    {
-                        "file_a": file_a,
-                        "file_b": file_b,
-                        "comparison": result,
-                        "error": None,
-                        "report_paths": pair_report_paths,
-                    }
-                )
-            except Exception as exc:
-                file_results.append(
-                    {
-                        "file_a": file_a,
-                        "file_b": file_b,
-                        "comparison": None,
-                        "error": str(exc),
-                        "report_paths": [],
-                    }
-                )
+                    pair_label = f"{Path(file_a).name} vs {Path(file_b).name}"
+                    successful_results.append((pair_label, result))
+                    file_results.append(
+                        {
+                            "file_a": file_a,
+                            "file_b": file_b,
+                            "comparison": result,
+                            "error": None,
+                            "report_paths": pair_report_paths,
+                        }
+                    )
+                except Exception as exc:
+                    file_results.append(
+                        {
+                            "file_a": file_a,
+                            "file_b": file_b,
+                            "comparison": None,
+                            "error": str(exc),
+                            "report_paths": [],
+                        }
+                    )
+        finally:
+            if docx_reporter is not None:
+                docx_reporter.close_session()
 
         outputs: list[str] = []
         aggregate_statistics = ChangeStatistics.from_changes([])
@@ -270,57 +289,80 @@ class Orchestrator:
         all_keys = sorted(set(files_a.keys()) | set(files_b.keys()))
         results: list[BatchFileResult] = []
 
+        # One reusable Word instance for the whole folder run instead of
+        # starting/quitting Word twice per docx file.
+        has_docx = any(
+            key in files_a
+            and key in files_b
+            and files_a[key].suffix.lower() == ".docx"
+            for key in all_keys
+        )
+        docx_session: DocxTrackChangesReporter | None = None
+        if has_docx:
+            _reporter = DocxTrackChangesReporter()
+            if _reporter.open_session():
+                docx_session = _reporter
+            else:
+                logger.warning(
+                    "Microsoft Word not found — per-file .docx track-changes reports will be skipped"
+                )
+
         total = len(all_keys) if all_keys else 1
-        for index, key in enumerate(all_keys, start=1):
-            self._progress(f"Comparing file {index}/{len(all_keys)}...", index / total)
-            file_a = files_a.get(key)
-            file_b = files_b.get(key)
+        try:
+            for index, key in enumerate(all_keys, start=1):
+                self._progress(f"Comparing file {index}/{len(all_keys)}...", index / total)
+                file_a = files_a.get(key)
+                file_b = files_b.get(key)
 
-            if file_a is None and file_b is not None:
-                results.append(
-                    BatchFileResult(
-                        filename=file_b.name,
-                        status="only_in_b",
+                if file_a is None and file_b is not None:
+                    results.append(
+                        BatchFileResult(
+                            filename=file_b.name,
+                            status="only_in_b",
+                        )
                     )
-                )
-                continue
-            if file_b is None and file_a is not None:
-                results.append(
-                    BatchFileResult(
-                        filename=file_a.name,
-                        status="only_in_a",
+                    continue
+                if file_b is None and file_a is not None:
+                    results.append(
+                        BatchFileResult(
+                            filename=file_a.name,
+                            status="only_in_a",
+                        )
                     )
-                )
-                continue
+                    continue
 
-            if file_a is None or file_b is None:
-                continue
+                if file_a is None or file_b is None:
+                    continue
 
-            try:
-                pair_output_dir = output_dir_path / self._safe_stem(file_a.name)
-                outputs = self.compare_files(
-                    str(file_a),
-                    str(file_b),
-                    str(pair_output_dir),
-                )
-                stats = self.last_result.statistics if self.last_result is not None else None
-                results.append(
-                    BatchFileResult(
-                        filename=file_a.name,
-                        status="compared",
-                        report_paths=outputs,
-                        statistics=stats,
-                        comparison=self.last_result,
+                try:
+                    pair_output_dir = output_dir_path / self._safe_stem(file_a.name)
+                    outputs = self.compare_files(
+                        str(file_a),
+                        str(file_b),
+                        str(pair_output_dir),
+                        docx_session=docx_session,
                     )
-                )
-            except Exception as exc:
-                results.append(
-                    BatchFileResult(
-                        filename=file_a.name,
-                        status="error",
-                        error_message=str(exc),
+                    stats = self.last_result.statistics if self.last_result is not None else None
+                    results.append(
+                        BatchFileResult(
+                            filename=file_a.name,
+                            status="compared",
+                            report_paths=outputs,
+                            statistics=stats,
+                            comparison=self.last_result,
+                        )
                     )
-                )
+                except Exception as exc:
+                    results.append(
+                        BatchFileResult(
+                            filename=file_a.name,
+                            status="error",
+                            error_message=str(exc),
+                        )
+                    )
+        finally:
+            if docx_session is not None:
+                docx_session.close_session()
 
         batch_result = BatchResult(
             folder_a=str(path_a),

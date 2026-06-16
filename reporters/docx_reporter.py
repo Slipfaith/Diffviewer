@@ -47,6 +47,10 @@ class DocxTrackChangesReporter(BaseReporter):
     def __init__(self, author: str = "Change Tracker", startup_timeout: float = 5.0) -> None:
         self.author = author
         self.startup_timeout = startup_timeout
+        # When a batch session is open, a single Word instance is kept alive
+        # across many generate() calls instead of starting/quitting per file.
+        self._session_word = None
+        self._session_owns_com = False
 
     def is_available(self) -> bool:
         if win32com is None or pythoncom is None:
@@ -64,6 +68,45 @@ class DocxTrackChangesReporter(BaseReporter):
             if pythoncom is not None:
                 pythoncom.CoUninitialize()
 
+    def open_session(self) -> bool:
+        """Start a single Word instance to be reused across many generate() calls.
+
+        Returns True if Word is available and a session was started. While a
+        session is open, generate() reuses this instance instead of starting and
+        quitting Word per file — the dominant cost in batch/folder runs.
+
+        Must be called and closed (close_session) on the same thread, and all
+        generate() calls in between must run on that thread too (COM apartment).
+        """
+        if win32com is None or pythoncom is None:
+            return False
+        if self._session_word is not None:
+            return True
+        try:
+            pythoncom.CoInitialize()
+            self._session_owns_com = True
+            word = self._start_word()
+            word.Visible = False
+            word.DisplayAlerts = 0
+            self._session_word = word
+            return True
+        except Exception:
+            self.close_session()
+            return False
+
+    def close_session(self) -> None:
+        """Quit the reusable Word instance started by open_session()."""
+        if self._session_word is not None:
+            self._safe_quit(self._session_word)
+            self._session_word = None
+        if self._session_owns_com:
+            if pythoncom is not None:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
+            self._session_owns_com = False
+
     def generate(self, result: ComparisonResult, output_path: str) -> str:
         output_file = Path(output_path)
         if output_file.suffix.lower() != self.output_extension:
@@ -73,30 +116,55 @@ class DocxTrackChangesReporter(BaseReporter):
             logger.warning(
                 "Microsoft Word not found, falling back to HTML report"
             )
-            html_path = output_file.with_suffix(".html")
-            HtmlReporter().generate(result, str(html_path))
-            return str(html_path)
+            return self._html_fallback(result, output_file)
 
+        # Reuse an already-open batch session instead of cycling Word per file.
+        if self._session_word is not None:
+            try:
+                self._compare_and_save(self._session_word, result, output_file)
+                return str(output_file)
+            except Exception as exc:
+                logger.warning("Word automation failed: %s - falling back to HTML report", exc)
+                return self._html_fallback(result, output_file)
+
+        # Standalone path: own Word lifecycle for this single call.
+        word = None
+        try:
+            pythoncom.CoInitialize()
+            word = self._start_word()
+            word.Visible = False
+            word.DisplayAlerts = 0
+            self._compare_and_save(word, result, output_file)
+            return str(output_file)
+        except Exception as exc:
+            logger.warning("Word automation failed: %s - falling back to HTML report", exc)
+            return self._html_fallback(result, output_file)
+        finally:
+            if word is not None:
+                self._safe_quit(word)
+            if pythoncom is not None:
+                pythoncom.CoUninitialize()
+
+    def _compare_and_save(self, word, result: ComparisonResult, output_file: Path) -> None:
+        """Run CompareDocuments for one pair on an existing Word instance.
+
+        Opens both source docs, produces the tracked-changes comparison, saves
+        it, and always closes the three documents it touched so the Word
+        instance is left clean for the next pair.
+        """
         output_file.parent.mkdir(parents=True, exist_ok=True)
         abs_output = os.path.abspath(str(output_file))
         abs_a = os.path.abspath(result.file_a.file_path)
         abs_b = os.path.abspath(result.file_b.file_path)
 
         tmp_dir = None
-        word = None
         doc_a = None
         doc_b = None
         result_doc = None
         try:
-            pythoncom.CoInitialize()
-
             tmp_dir = tempfile.mkdtemp(prefix="diffviewer_docx_")
             work_a = self._prepare_file(abs_a, tmp_dir, "a_")
             work_b = self._prepare_file(abs_b, tmp_dir, "b_")
-
-            word = self._start_word()
-            word.Visible = False
-            word.DisplayAlerts = 0
 
             doc_a = self._open_document_for_compare(
                 word=word,
@@ -131,23 +199,18 @@ class DocxTrackChangesReporter(BaseReporter):
 
             result_doc = word.ActiveDocument
             result_doc.SaveAs2(abs_output, FileFormat=12)
-        except Exception as exc:
-            logger.warning("Word automation failed: %s - falling back to HTML report", exc)
-            html_path = output_file.with_suffix(".html")
-            HtmlReporter().generate(result, str(html_path))
-            return str(html_path)
         finally:
             self._safe_close(result_doc)
             self._safe_close(doc_b)
             self._safe_close(doc_a)
-            if word is not None:
-                self._safe_quit(word)
-            if pythoncom is not None:
-                pythoncom.CoUninitialize()
             if tmp_dir is not None:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        return str(output_file)
+    @staticmethod
+    def _html_fallback(result: ComparisonResult, output_file: Path) -> str:
+        html_path = output_file.with_suffix(".html")
+        HtmlReporter().generate(result, str(html_path))
+        return str(html_path)
 
     @staticmethod
     def _prepare_file(src_path: str, tmp_dir: str, prefix: str) -> str:
