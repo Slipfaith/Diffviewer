@@ -19,7 +19,7 @@ from core.models import (
     UnsupportedFormatError,
 )
 
-_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff"}
+_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff", ".po"}
 from core.registry import ParserRegistry, ReporterRegistry
 from parsers.base import BaseParser
 from reporters.docx_reporter import DocxTrackChangesReporter
@@ -574,7 +574,7 @@ class Orchestrator:
 
     @staticmethod
     def _should_decode_entities(extension: str) -> bool:
-        return extension.lower() not in {".txt", ".srt"}
+        return extension.lower() not in {".txt", ".srt", ".po"}
 
     @staticmethod
     def _normalize_document_text_entities(

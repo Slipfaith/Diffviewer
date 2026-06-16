@@ -16,6 +16,7 @@ PARSER_HIDDEN_IMPORTS = [
     "parsers.memoq_parser",
     "parsers.txt_parser",
     "parsers.srt_parser",
+    "parsers.po_parser",
     "parsers.xlsx_parser",
     "parsers.xls_parser",
     "parsers.pptx_parser",
@@ -171,4 +172,3 @@ class ReporterRegistry:
             if inspect.isabstract(obj):
                 continue
             register(obj)
-

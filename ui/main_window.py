@@ -146,7 +146,7 @@ class VersionFileListWidget(QListWidget):
         return paths
 
 
-_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff"}
+_ONE_VS_ALL_EXTENSIONS = {".xliff", ".xlf", ".sdlxliff", ".mqxliff", ".po"}
 
 
 class MainWindow(QMainWindow):
@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
             "<li>Добавьте один или несколько файлов в зону <b>Comparison Files</b>.</li>"
             "<li>Результат: сводный HTML/Excel-отчёт со столбцами "
             "<b>Seg ID / Source / Target / Target 1 / Target 2 ...</b></li>"
-            "<li>Поддерживаемые форматы: XLIFF, SDLXLIFF, MemoQ XLIFF.</li>"
+            "<li>Поддерживаемые форматы: XLIFF, SDLXLIFF, MemoQ XLIFF, PO.</li>"
             "</ul>"
             "<hr>"
             '<h3 style="margin-bottom:4px;">Настройки сравнения</h3>'
@@ -262,7 +262,7 @@ class MainWindow(QMainWindow):
             "«Hook diameter» и «Bolt diameter» → MODIFIED (изменение содержимого).</i></p>"
             "<hr>"
             '<p style="color:#64748b; font-size:11px;">Поддерживаемые форматы: '
-            "XLIFF, SDLXLIFF, MemoQ XLIFF, Excel, Word, PowerPoint, TXT, SRT, PDF.</p>"
+            "XLIFF, SDLXLIFF, MemoQ XLIFF, PO, Excel, Word, PowerPoint, TXT, SRT, PDF.</p>"
         )
         layout.addWidget(browser, 1)
 
@@ -311,7 +311,7 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(desc)
 
         fmt = QLabel(
-            "Форматы: XLIFF · SDLXLIFF · MemoQ XLIFF\nExcel · Word · PowerPoint · TXT · SRT",
+            "Форматы: XLIFF · SDLXLIFF · MemoQ XLIFF · PO\nExcel · Word · PowerPoint · TXT · SRT",
             body,
         )
         fmt.setStyleSheet("color: #6b7280; font-size: 11px; background: transparent;")
